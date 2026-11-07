@@ -1,0 +1,58 @@
+# CLAUDE.md
+
+Catalog: an offline-first PWA for organizing a personal library (Goodreads import, collections, notes, progress, a to-read queue), with a cat-librarian theme. No backend; everything lives in IndexedDB on the device, with JSON backups, Goodreads CSV in and out, and on-device safety copies. Built in the same style as `lesps/banana`. `SPEC.md` describes behaviour and data formats and is kept accurate to the code.
+
+## Stack
+Vite 8 + vanilla ES modules (no framework), `idb` (IndexedDB promises), `vite-plugin-pwa` (generateSW, `registerType: 'prompt'`), Vitest 5 + jsdom + `fake-indexeddb`, sharp (icon script only), `@fontsource/grandstander` (600/700, headings; body text is the system font).
+
+## Commands
+```bash
+npm ci
+npm test                              # tests/lib, tests/db, tests/ui (TZ=America/New_York, set in vitest.config.js)
+npm run build && npm run test:build   # tests/build runs against dist/
+npm run dev | npm run preview
+npm run icons                         # app icons + iOS launch screens from the cat generator; commit public/ and assets/icon.svg
+npm run cats -- out.html              # a page of every pose, coat and some random cats, for reviewing the art
+BASE_PATH=/library/ npm run build     # sub-path build (CI sets /<repo-name>/)
+```
+
+## Layout
+- `src/lib/` — pure logic, no DOM.
+  - `book.js`: the book record. `BOOK_FIELDS` (field → sanitizer; `deleted` is a field), `createBook(fields, { now, id })`, `updateBook(book, patch, now)` (stamps only changed fields in `fieldAt`; same object when nothing changes; never blanks a title unless `needsLookup`), `statusPatch(book, status, today, { endRank })` (dates/read count/queue rank that follow a status), `sanitizeBook`, `authorLastFirst`, `authorSortKey`, `titleSortKey`, `bookAuthorSort`, `newId`, `STATUS_LABELS`.
+  - `records.js`: notes, progress, collections (`create*`, `sanitize*`, `touch(record, patch, now, sanitize)`), `currentProgress`, `progressPercent`, `findCollection` (case-insensitive, live only).
+  - `merge.js`: `mergeBook` (field by field on `fieldAt`, ties keep local), `mergeData(local, incoming)` → `{ data, report: { added, updated, removed, unchanged, records } }`, `emptyData`, `KINDS`.
+  - `backup.js`: `exportData`, `parseBackup`, `readRecords` (validate + dedupe, also used by the store on load), `summarize`, `backupDue`, `backupFilename`. `FORMAT`/`VERSION`.
+  - `snapshots.js`: retention (`snapshotsToKeep`), `snapshotDue`, `dataVersion`, `restoreEdits(current, snapshot, now)` (a restore as new edits), `applyEdits(data, edits)` (write changed records over the library by id; used everywhere edits are applied in memory).
+  - `undo.js`: `captureBefore(data, edits)`, `undoEdits(before, data, now)`.
+  - `library.js`: `queryBooks` (filters, search incl. notes, `SORTS`), `statusCounts`, `toReadQueue`, `queueEndRank`, `findDuplicate` (ISBN-13, then title + first author), `normalize`.
+  - `rank.js`: fractional ranks: `rankBetween(a, b)`, `spreadRanks(n, lo, hi)`.
+  - `goodreads.js`: `parseGoodreads(csv)`, `planImport(rows, data, { now, updateExisting })` → `{ edits, collections, counts }`, `goodreadsCsv(data)`, `shelfName`, `reviewText`. Rules in SPEC "Goodreads".
+  - `csv.js` (RFC 4180 `parseCsv`, `csvObjects`, `toCsv`), `isbn.js` (`cleanIsbn`, checksums, `toIsbn13`, `isbnFromQuery`, `formatIsbn`), `dates.js` (local `YYYY-MM-DD` days, `parseLooseDate`, `formatDate`, `dayKey`, `weekKey`), `settings.js`, `changelog.js` (as Banana's).
+  - `lookup.js`: URL builders and parsers for Open Library and Google Books (`olSearchUrl`, `parseOlSearch`, `googleSearchUrl`, `parseGoogle`, `coverLookupUrl`, `parseCoverLookup`), `coverSrc` (cover-id URLs only), `needsCover`.
+  - `cats.js`: the cat generator. `catSvg({ pose, coat, eyes, accessory, accent, flip, id, seed, ledge })` → static SVG markup (every internal id prefixed with `id`), `randomCat(rng)`, `rng(seed)` (mulberry32), `scatter(rng, { width, height, count, min, max })`, `POSES`, `COATS`, `EYES`, `ACCESSORIES`.
+- `src/db/store.js`: `openStore({ name, onVersionChange })` and `createMemoryStore(initial)`, one interface: `loadAll()` → `{ data, meta }`, `commit(changes)` (one transaction; aborts on any error, including a put that throws synchronously), `listSnapshots`, `saveSnapshot`, `readSnapshot`, `deleteSnapshots`, `close`, `kind`. `MIGRATIONS` is append-only.
+- `src/ui/` — DOM.
+  - `app.js`: `mountApp(root, { store, now, saveFile, fetch, isOnline, delay, env, version, changelog, workers, channel, catSeed, win })` → `{ actions, state(), ready, destroy() }`. Owns state, hash routing (`#/library`, `#/book/<id>`, `#/queue`, `#/add`, `#/collections`, `#/settings`, `#/import`, `#/snapshots`, `#/deleted`; `go(path)` uses pushState), whole-view rendering (focus and caret restored through `data-focus`; scroll remembered per route), the write queue (`edit()` → `applyEdits` in memory → render → `queueWrite`; failures kept and retried, banner shown), undo toasts, safety copies, the background worker (`runWorkers`: details for `needsLookup` books, then covers), and every action the views call. Storage keys are in `meta` (see SPEC).
+  - `views/`: `library.js` (header, backup nudge, controls, windowed shelf, select mode and bulk bar; exports `stamp`, `paws`), `book.js` (exports `editDetails`), `queue.js` (handle drag + buttons), `add.js`, `collections.js`, `import.js`, `settings.js` (also `snapshotsView`, `deletedView`). Each is `(ctx) → node`; `ctx = { state, actions, now, today, env, signal, afterRender }`.
+  - `shelf.js`: windowed grid/list (`measure`, `shelf({ books, layout, selecting, renderItem, signal })` → `{ el, update }`; call `update` after mount, via `afterRender`).
+  - `net.js`: `createNet({ fetch, delay, now, gap })` → `get(url, { priority })`: serial, ≥ `gap` ms per host, `user` before `background`; `OfflineError` for network failures, `HttpError` for bad statuses.
+  - `cat-layer.js`: `createCatLayer(document)` → `shuffle(level, seed)` (background cats + the tab-bar perch), `mascot(kind)`, `MASCOTS`.
+  - `cover.js`: `coverEl(book, { size, cls })` (generated cloth cover underneath, image on top, removed on error), `generatedCover`, `displayTitle`.
+  - `dom.js`: `h()`, `openDialog`/`closeDialog` (fallback to the `open` attribute where `showModal` is missing, e.g. jsdom), `sheet`, `confirmDialog`, `promptDialog`, `formDialog`, `textDialog`, `plural`. `icons.js`, `toast.js`, `files.js` (`saveFile(name, text, type)`: share sheet, else download), `install.js`, `whats-new.js`.
+- `src/main.js`: entry point (fonts, CSS, `navigator.storage.persist()`, SW registration). Untested by design; keep logic out of it.
+- `src/styles.css`: tokens with light/dark themes. Background-cat opacity is `--cat-lively`/`--cat-subtle`. `main.view` gives text a halo in the page colour (cats wander behind); surfaces opt out with `text-shadow: none`. Generated covers are coloured by `--c`.
+- `scripts/`: `build-icons.mjs` (icons from `LIBRARIAN`, launch screens), `splash.js` (iPhone sizes, `splashLinks` injected by a plugin in `vite.config.js`), `cat-sampler.mjs`.
+- `tests/lib`, `tests/db` (`fake-indexeddb/auto`; each case runs against both stores), `tests/ui` (jsdom; `tests/ui/helpers.js` mounts with a memory store, a controllable clock, a fake fetch, a switchable online flag, a recording `saveFile`, `workers: false`), `tests/build` (separate config), `tests/fixtures/goodreads.csv`.
+- `.github/workflows/deploy.yml`: test, build, build tests, deploy to GitHub Pages on push to `main` (Pages source must be "GitHub Actions").
+
+## Rules
+- TDD: write or update the failing test first. Flag any untested change.
+- User text goes through `textContent` (the `h()` children). `h(..., { html })` is for static markup only (icons, cat art), never data.
+- Never hard-delete records: deletion is `deleted: true` so merges can't resurrect them. Restores and undos are new edits stamped now.
+- Every change to the library goes through `edit()` in `app.js`; never write to the store from a view.
+- A store transaction never awaits anything but its own requests (it would auto-commit early). Compute first, then open the transaction.
+- Schema changes are new entries at the end of `MIGRATIONS`; bump `DB_VERSION`. Never edit a released step.
+- Covers are fetched by Open Library cover id, never by ISBN URL (rate-limited). Keep background requests on `priority: 'background'`.
+- Changing the backup format means bumping `VERSION` in `backup.js` and keeping version 1 readable.
+- Keep README, CHANGELOG, SPEC and this file accurate to the code.
+- `CHANGELOG.md` is shown in the app. Every release bumps `version` in package.json and adds a `## x.y.z — date` section whose bullets are written for the person using Catalog; developer notes go under `### Developer`. `tests/lib/changelog.test.js` fails if the package version has no user-facing notes.

@@ -1,0 +1,80 @@
+// The backup file: everything in the library, deleted markers included, as one JSON document.
+import { sanitizeBook } from './book.js';
+import { sanitizeNote, sanitizeProgress, sanitizeCollection } from './records.js';
+import { sanitizeSettings } from './settings.js';
+import { mergeBook, emptyData } from './merge.js';
+import { ymd } from './dates.js';
+
+export const FORMAT = 'catalog-library';
+export const VERSION = 1;
+const WEEK = 7 * 86_400_000;
+
+export function exportData(data, now) {
+  return {
+    format: FORMAT,
+    version: VERSION,
+    exported: new Date(now).toISOString(),
+    settings: data.settings,
+    books: data.books,
+    notes: data.notes,
+    progress: data.progress,
+    collections: data.collections,
+  };
+}
+
+export const backupFilename = (now) => `catalog-${ymd(new Date(now))}.json`;
+
+const SANITIZERS = { notes: sanitizeNote, progress: sanitizeProgress, collections: sanitizeCollection };
+
+// Validates every record (bad ones are skipped and counted); a repeated id keeps the newest copy.
+export function readRecords(raw) {
+  let skipped = 0;
+  const books = new Map();
+  for (const r of Array.isArray(raw.books) ? raw.books : []) {
+    const b = sanitizeBook(r);
+    if (!b) skipped += 1;
+    else books.set(b.id, books.has(b.id) ? mergeBook(books.get(b.id), b) : b);
+  }
+  const data = { ...emptyData(), books: [...books.values()], settings: sanitizeSettings(raw.settings) };
+  for (const [kind, clean] of Object.entries(SANITIZERS)) {
+    const byId = new Map();
+    for (const r of Array.isArray(raw[kind]) ? raw[kind] : []) {
+      const x = clean(r);
+      if (!x) skipped += 1;
+      else if (!byId.has(x.id) || x.updatedAt > byId.get(x.id).updatedAt) byId.set(x.id, x);
+    }
+    data[kind] = [...byId.values()];
+  }
+  return { data, skipped };
+}
+
+export function parseBackup(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'This file isn’t valid JSON.' };
+  }
+  if (!raw || raw.format !== FORMAT) return { ok: false, error: 'This isn’t a Catalog backup file.' };
+  if (raw.version !== VERSION) return { ok: false, error: `This backup is version ${raw.version}, which this version of Catalog can’t read.` };
+  if (!Array.isArray(raw.books)) return { ok: false, error: 'The backup has no books list.' };
+  return { ok: true, ...readRecords(raw) };
+}
+
+export function summarize(data) {
+  const books = data.books.filter((b) => !b.deleted);
+  return {
+    books: books.length,
+    read: books.filter((b) => b.status === 'read').length,
+    notes: data.notes.filter((n) => !n.deleted).length,
+    collections: data.collections.filter((c) => !c.deleted).length,
+  };
+}
+
+// Nudge for a file backup: there's something to lose and it changed since the last export,
+// which was never or over a week ago.
+export function backupDue({ lastExport, lastChange, bookCount }, now) {
+  if (!bookCount || !lastChange) return false;
+  if (lastExport == null) return true;
+  return lastChange > lastExport && now - lastExport >= WEEK;
+}
