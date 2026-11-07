@@ -27,7 +27,9 @@ import { isbnFromQuery } from '../lib/isbn.js';
 import { parseChangelog, notesSince, releasesUpTo } from '../lib/changelog.js';
 import { libraryView } from './views/library.js';
 import { bookView } from './views/book.js';
-import { queueView } from './views/queue.js';
+import { readingView } from './views/reading.js';
+import { statsView } from './views/stats.js';
+import { sanitizeGoals } from '../lib/settings.js';
 import { addView } from './views/add.js';
 import { collectionsView } from './views/collections.js';
 import { settingsView, snapshotsView, deletedView } from './views/settings.js';
@@ -36,12 +38,12 @@ import { VERSION, CHANGELOG } from '../version.js';
 
 export const TABS = [
   { view: 'library', label: 'Library', icon: 'library' },
-  { view: 'queue', label: 'To read', icon: 'queue' },
+  { view: 'reading', label: 'Reading', icon: 'queue' },
   { view: 'add', label: 'Add', icon: 'add' },
   { view: 'collections', label: 'Collections', icon: 'collections' },
   { view: 'settings', label: 'Settings', icon: 'settings' },
 ];
-const VIEWS = { library: libraryView, book: bookView, queue: queueView, add: addView, collections: collectionsView, settings: settingsView, import: importView, snapshots: snapshotsView, deleted: deletedView };
+const VIEWS = { library: libraryView, book: bookView, reading: readingView, stats: statsView, add: addView, collections: collectionsView, settings: settingsView, import: importView, snapshots: snapshotsView, deleted: deletedView };
 const PREF_KEYS = ['layout', 'sort', 'status', 'collection'];
 const DAY = 86_400_000;
 const RETRY_MS = 15_000;
@@ -96,6 +98,8 @@ export function mountApp(root, opts = {}) {
     add: { query: '', status: 'want', phase: 'idle', results: [], paste: null },
     imp: { phase: 'pick' },
     snapshots: null,
+    statsYear: null,
+    statsShowAll: false,
     workers: { remaining: 0, running: false, pausedUntil: 0 },
   };
 
@@ -150,7 +154,7 @@ export function mountApp(root, opts = {}) {
     const view = state.loading ? h('div', { class: 'loading' }, 'Opening your library…') : VIEWS[state.route.view](ctx);
     main.dataset.view = state.route.view;
     main.replaceChildren(...banners(), view);
-    const tab = state.route.view === 'book' || state.route.view === 'import' ? 'library' : ['snapshots', 'deleted'].includes(state.route.view) ? 'settings' : state.route.view;
+    const tab = { book: 'library', import: 'library', stats: 'reading', snapshots: 'settings', deleted: 'settings' }[state.route.view] ?? state.route.view;
     for (const b of tabs.children) {
       if (b.dataset.view === tab) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
@@ -808,6 +812,19 @@ export function mountApp(root, opts = {}) {
     },
 
     // settings
+    setGoal(year, { books, pages }) {
+      const goals = sanitizeGoals({ ...state.data.settings.goals, [year]: { books, pages } });
+      edit({ settings: { ...state.data.settings, goals, updatedAt: now() } }, { undoable: false });
+    },
+    setStatsYear(year) {
+      state.statsYear = year;
+      state.statsShowAll = false;
+      render();
+    },
+    showAllFinished() {
+      state.statsShowAll = true;
+      render();
+    },
     setCats(level) {
       edit({ settings: { ...state.data.settings, cats: level, updatedAt: now() } }, { undoable: false });
     },

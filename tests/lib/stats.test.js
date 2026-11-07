@@ -1,0 +1,113 @@
+import { describe, it, expect } from 'vitest';
+import { createBook } from '../../src/lib/book.js';
+import { yearStats, yearsSummary, undatedReads, pace, dayOfYear } from '../../src/lib/stats.js';
+import { sanitizeSettings } from '../../src/lib/settings.js';
+
+const T = new Date(2026, 10, 7, 12).getTime(); // Sat Nov 7 2026, day 311 of 365
+let n = 0;
+const book = (f) => createBook({ title: `B${n}`, ...f }, { now: T, id: `b${++n}` });
+const books = [
+  book({ title: 'Long', status: 'read', finished: '2026-03-04', pages: 900, rating: 5 }),
+  book({ title: 'Short', status: 'read', finished: '2026-03-20', pages: 120, rating: 3 }),
+  book({ title: 'Nopages', status: 'read', finished: '2026-10-01' }),
+  book({ title: 'Reread', status: 'reading', finished: '2026-01-15', pages: 300 }),
+  book({ title: 'Old', status: 'read', finished: '2023-06-01', pages: 200 }),
+  book({ title: 'Older', status: 'read', finished: '2021-12-31', pages: 250 }),
+  book({ title: 'Undated', status: 'read' }),
+  { ...book({ title: 'Gone', status: 'read', finished: '2026-02-02', pages: 50 }), deleted: true },
+  book({ title: 'Want', status: 'want' }),
+];
+
+describe('yearStats', () => {
+  const s = yearStats(books, 2026);
+
+  it('counts every live book finished that year, whatever its status now (a reread still counts)', () => {
+    expect(s.count).toBe(4);
+    expect(s.books.map((b) => b.title)).toEqual(['Nopages', 'Short', 'Long', 'Reread']);
+  });
+
+  it('adds up the pages it knows, and says how many books have none', () => {
+    expect(s.pages).toBe(1320);
+    expect(s.unknownPages).toBe(1);
+    expect(s.avgPages).toBe(440);
+  });
+
+  it('splits the year by month', () => {
+    expect(s.byMonth).toHaveLength(12);
+    expect(s.byMonth[2]).toEqual({ month: 2, count: 2, pages: 1020 });
+    expect(s.byMonth[0].count).toBe(1);
+    expect(s.byMonth[9]).toEqual({ month: 9, count: 1, pages: 0 });
+  });
+
+  it('finds the longest and shortest books with page counts, and the average rating of rated ones', () => {
+    expect(s.longest.title).toBe('Long');
+    expect(s.shortest.title).toBe('Short');
+    expect(s.avgRating).toBe(4);
+  });
+
+  it('is empty, not broken, for a year with no books', () => {
+    const e = yearStats(books, 2019);
+    expect(e).toMatchObject({ count: 0, pages: 0, avgRating: null, avgPages: null, longest: null, shortest: null });
+  });
+});
+
+describe('yearsSummary', () => {
+  it('lists every year from the first finished book to the latest (or now), gaps included', () => {
+    expect(yearsSummary(books, 2026)).toEqual([
+      { year: 2021, count: 1, pages: 250 },
+      { year: 2022, count: 0, pages: 0 },
+      { year: 2023, count: 1, pages: 200 },
+      { year: 2024, count: 0, pages: 0 },
+      { year: 2025, count: 0, pages: 0 },
+      { year: 2026, count: 4, pages: 1320 },
+    ]);
+  });
+
+  it('is just this year for a library with no dated reads', () => {
+    expect(yearsSummary([], 2026)).toEqual([{ year: 2026, count: 0, pages: 0 }]);
+  });
+});
+
+describe('undatedReads', () => {
+  it('lists read books without a finish date (they can’t count toward any year)', () => {
+    expect(undatedReads(books).map((b) => b.title)).toEqual(['Undated']);
+  });
+});
+
+describe('pace', () => {
+  it('knows the day of the year', () => {
+    expect(dayOfYear(T)).toBe(311);
+    expect(dayOfYear(new Date(2028, 11, 31, 12).getTime())).toBe(366);
+  });
+
+  it('compares progress with where an even pace would be by today', () => {
+    expect(pace({ goal: 40, done: 18, year: 2026, now: T })).toEqual({ status: 'behind', by: 16, toGo: 22, daysLeft: 55, perDay: 0.4 });
+    expect(pace({ goal: 20, done: 18, year: 2026, now: T })).toMatchObject({ status: 'ahead', by: 1, toGo: 2 });
+    expect(pace({ goal: 21, done: 18, year: 2026, now: T })).toMatchObject({ status: 'on', by: 0 });
+  });
+
+  it('says when the goal is reached', () => {
+    expect(pace({ goal: 10, done: 12, year: 2026, now: T })).toMatchObject({ status: 'done', toGo: 0 });
+  });
+
+  it('judges past years as reached or missed', () => {
+    expect(pace({ goal: 30, done: 25, year: 2025, now: T })).toMatchObject({ status: 'missed', toGo: 5, daysLeft: 0 });
+    expect(pace({ goal: 20, done: 25, year: 2025, now: T })).toMatchObject({ status: 'done' });
+  });
+
+  it('a future year has not started', () => {
+    expect(pace({ goal: 30, done: 0, year: 2027, now: T })).toMatchObject({ status: 'upcoming', toGo: 30, daysLeft: 365 });
+  });
+
+  it('is null without a goal', () => {
+    expect(pace({ goal: null, done: 3, year: 2026, now: T })).toBe(null);
+  });
+});
+
+describe('goals in settings', () => {
+  it('keeps a books and/or pages goal per year, dropping nonsense', () => {
+    const s = sanitizeSettings({ cats: 'off', updatedAt: 1, goals: { 2026: { books: '40', pages: 12000 }, 2025: { books: 0, pages: null }, abc: { books: 3 }, 2024: { pages: 5000 } } });
+    expect(s.goals).toEqual({ 2026: { books: 40, pages: 12000 }, 2024: { books: null, pages: 5000 } });
+    expect(sanitizeSettings({}).goals).toEqual({});
+  });
+});

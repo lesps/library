@@ -37,13 +37,15 @@ function draggable(row, list, index, onDrop) {
   });
 }
 
-export function queueView({ state, actions }) {
+// "Up next": the to-read queue, in order, as a section of the Reading tab.
+export function queueSection({ state, actions }) {
   const queue = toReadQueue(state.data.books);
+  const head = h('h2', {}, 'Up next', queue.length ? h('span', { class: 'total' }, ` ${plural(queue.length, 'book')}`) : null);
   if (!queue.length) {
-    return h('section', { class: 'empty' }, mascot('queue', 'big'),
-      h('h1', {}, 'Nothing on your to-read list'),
-      h('p', {}, 'Books you mark “Want to read” line up here, in the order you want to read them.'),
-      h('button', { type: 'button', class: 'btn primary', onclick: () => actions.go('/add') }, 'Find a book'));
+    return h('section', { class: 'up-next' }, head,
+      h('div', { class: 'queue-empty' }, mascot('queue', 'small'),
+        h('p', {}, 'Nothing on your to-read list. Books you mark “Want to read” line up here, in the order you want to read them.'),
+        h('button', { type: 'button', class: 'btn small', onclick: () => actions.go('/add') }, 'Find a book')));
   }
   const list = h('ol', { class: 'queue' });
   queue.forEach((b, i) => {
@@ -62,8 +64,7 @@ export function queueView({ state, actions }) {
     draggable(row, list, i, (to) => actions.moveInQueue(b.id, to));
     list.append(row);
   });
-  return h('section', { class: 'queue-view' },
-    h('header', { class: 'top' }, h('h1', {}, 'To read'), h('span', { class: 'total' }, plural(queue.length, 'book'))),
-    h('p', { class: 'muted' }, 'Drag the handle, or use the arrows, to put them in order.'),
+  return h('section', { class: 'up-next' }, head,
+    h('p', { class: 'muted small' }, 'Drag the handle, or use the arrows, to put them in order.'),
     list);
 }

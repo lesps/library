@@ -26,6 +26,7 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   --cat-lively: 0.5;
   --cat-subtle: 0.3;
+  --chart-muted: #aebfb6;
   color-scheme: light;
 }
 
@@ -52,6 +53,7 @@
     --overlay: rgb(0 0 0 / 0.6);
     --cat-lively: 0.42;
     --cat-subtle: 0.24;
+    --chart-muted: #3b5249;
     color-scheme: dark;
   }
 }
@@ -375,6 +377,76 @@ label { display: block; }
 .q-actions .icon-btn { width: 34px; height: 34px; }
 .q-actions .icon-btn svg { width: 18px; height: 18px; }
 @media (max-width: 420px) { .q-actions .top { display: none; } }
+
+/* ——— reading ——— */
+.reading-view > section > h2, .up-next > h2 { font-size: 21px; margin: 20px 0 10px; }
+.up-next > h2 .total { font: 400 14px var(--body); color: var(--ink-2); }
+.nr-row { display: flex; gap: 14px; overflow-x: auto; margin: 0 -16px; padding: 2px 16px 6px; scrollbar-width: none; }
+.nr-row::-webkit-scrollbar { display: none; }
+.nr-book { flex: none; width: 108px; display: flex; flex-direction: column; gap: 5px; border: 0; background: none; padding: 0; text-align: left; }
+.nr-cover { width: 100%; }
+.nr-title { font-size: 13px; font-weight: 650; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.nr-progress { display: flex; align-items: center; gap: 6px; }
+.nr-bar { flex: 1; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.nr-bar span { display: block; height: 100%; background: var(--ginger); border-radius: 99px; }
+.nr-pct { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.queue-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; background: var(--paper); border: 1.5px dashed var(--line); border-radius: 12px; padding: 12px; text-shadow: none; }
+.queue-empty p { flex: 1 1 180px; font-size: 14px; color: var(--ink-2); }
+
+/* The goal: a meter per measure, the fill on a lighter step of the same green, and a tick where an
+   even pace would be today. */
+.goal-card { position: relative; }
+.goal-card.reached { border-top: 3px solid var(--ginger); }
+.goal-cat { position: absolute; right: 12px; top: -30px; width: 64px; height: 64px; }
+.goal-figure { font-weight: 650; font-size: 22px; margin: 10px 0 6px; }
+.goal-pages .goal-figure { font-size: 16px; margin-top: 14px; }
+.meter { position: relative; height: 12px; border-radius: 99px; background: color-mix(in srgb, var(--green) 16%, var(--paper)); }
+.meter-fill { display: block; height: 100%; border-radius: 99px; background: var(--green); min-width: 12px; }
+.meter-fill[style*='width: 0%'] { min-width: 0; }
+.meter-pace { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--ink); }
+.pace { margin-top: 12px; font-size: 14.5px; }
+.pages-pace { margin-top: 2px; font-size: 13.5px; }
+.goal-card .card-actions .link, .goal-card > .see-stats { margin-top: 6px; }
+
+/* ——— stats ——— */
+.stats-view h1 { font-size: 28px; margin-bottom: 4px; }
+.year-chips { margin-bottom: 4px; }
+.kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 12px 0; }
+@media (min-width: 560px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
+.kpi { display: flex; flex-direction: column; background: var(--paper); border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; text-shadow: none; }
+.kpi-label { font-size: 13px; color: var(--ink-2); }
+.kpi-value { font-size: 24px; font-weight: 650; }
+
+.chart { margin: 12px 0; }
+.chart figcaption { font: 700 17px var(--display); margin-bottom: 8px; }
+.chart-plot { position: relative; display: flex; gap: 2px; height: 140px; padding-top: 18px; border-bottom: 1px solid var(--line); }
+.col { position: relative; flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; cursor: default; }
+button.col { cursor: pointer; }
+.col-bar { position: absolute; bottom: 0; left: 50%; width: min(24px, 70%); transform: translateX(-50%); height: calc(var(--v) * 100%); min-height: 3px; background: var(--green); border-radius: 4px 4px 0 0; }
+.col-bar.zero { display: none; }
+.col.off .col-bar { background: var(--chart-muted); }
+.col:hover .col-bar, .col:focus-visible .col-bar { filter: brightness(1.18); }
+.col:focus-visible { outline-offset: -2px; }
+.col-value { position: absolute; left: 0; right: 0; bottom: calc(var(--v) * 100% + 2px); text-align: center; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.chart-axis { display: flex; gap: 2px; margin-top: 5px; }
+.chart-axis span { flex: 1; min-width: 0; text-align: center; font-size: 11px; color: var(--ink-3); }
+.chart-axis span.on { color: var(--ink); font-weight: 700; }
+.chart-tip { position: absolute; top: -6px; z-index: 1; padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--page); font-size: 12px; white-space: nowrap; pointer-events: none; }
+
+.extremes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.extremes .card { margin: 0; padding: 10px 12px; }
+.finished-list, .finished-mini { list-style: none; margin: 0; padding: 0; }
+.fl-book { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 0; border: 0; background: none; text-align: left; }
+.finished-list li + li .fl-book { border-top: 1px solid var(--line); }
+.fl-book .thumb { width: 36px; }
+.fl-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.fl-title { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fl-author { font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fl-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 12px; color: var(--ink-2); flex: none; }
+.extremes .fl-author { font-size: 12px; }
+.show-all { margin-top: 8px; }
+.undated summary { cursor: pointer; font-weight: 650; }
+.undated[open] summary { margin-bottom: 6px; }
 
 /* ——— add ——— */
 .offline-note { display: flex; align-items: center; gap: 12px; background: var(--paper); border: 1.5px dashed var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; }

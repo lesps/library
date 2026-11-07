@@ -37,7 +37,7 @@ describe.each(kinds)('%s store', (kind, make) => {
     expect(data.books).toEqual([b]);
     expect(data.notes[0].text).toBe('hi');
     expect(data.collections[0].name).toBe('Sci-fi');
-    expect(data.settings).toEqual({ cats: 'off', updatedAt: T });
+    expect(data.settings).toEqual({ cats: 'off', goals: {}, updatedAt: T });
     expect(meta).toEqual({ lastExport: T, prefs: { view: 'list' } });
   });
 

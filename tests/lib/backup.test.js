@@ -12,7 +12,7 @@ const data = {
   notes: [createNote({ bookId: 'b1', text: 'Spice' }, { now: T, id: 'n1' })],
   progress: [createProgress({ bookId: 'b1', page: 12 }, { now: T, id: 'p1' })],
   collections: [createCollection({ name: 'Sci-fi', rank: 'i' }, { now: T, id: 'c1' })],
-  settings: { cats: 'subtle', updatedAt: T },
+  settings: { cats: 'subtle', goals: { 2026: { books: 30, pages: null } }, updatedAt: T },
 };
 
 describe('backup round trip', () => {
@@ -26,6 +26,12 @@ describe('backup round trip', () => {
   });
 
   it('names files by date', () => expect(backupFilename(T)).toBe('catalog-2026-11-07.json'));
+
+  it('reads backups made before goals existed', () => {
+    const { settings, ...rest } = exportData(data, T);
+    const parsed = parseBackup(JSON.stringify({ ...rest, settings: { cats: 'off', updatedAt: T } }));
+    expect(parsed.data.settings).toEqual({ cats: 'off', goals: {}, updatedAt: T });
+  });
 });
 
 describe('parseBackup', () => {

@@ -56,7 +56,7 @@ The to-read queue and the collection list are ordered by fractional ranks: base-
 
 Stored in the `meta` object store:
 
-- `settings`: `{ cats: 'lively' | 'subtle' | 'off', updatedAt }`. Travels with backups.
+- `settings`: `{ cats: 'lively' | 'subtle' | 'off', goals: { "2026": { books: 40, pages: 12000 } }, updatedAt }`. Travels with backups (merged whole on `updatedAt`, like any settings change). A goal may have books, pages or both; one with neither is removed. Backups from before goals existed read with `goals: {}`.
 - Device-only, never in backups: `prefs` (library layout, sort, status and collection filters), `lastExport`, `backupSnoozedUntil`, `seenVersion`.
 
 ### Storage
@@ -147,16 +147,28 @@ The only network use. Nothing about the library is sent anywhere except the sear
 
 ## Screens
 
-Bottom tabs: **Library**, **To read**, **Add**, **Collections**, **Settings**.
+Bottom tabs: **Library**, **Reading**, **Add**, **Collections**, **Settings**.
 
 - **Library**: search (title, subtitle, authors, ISBN, publisher, review and notes; every word must match; accents and case ignored), status chips with counts, a collection filter (or "In no collection"), sort (recently added, title ignoring articles, author surname, rating, date read, recently changed), grid or list. Layout, sort and filters are remembered. Only the rows on screen are drawn, so thousands of books scroll smoothly.
 - **Select mode** (Select, or long-press a book): tap to toggle, shift-click for a range, "Select all N" for everything matching the current filters. Actions: Status, Collection (add to any, create a new one, remove from any the selection is in), Delete (asks first, takes a safety copy, Undo), More (look for covers again, export as Goodreads CSV). Done leaves select mode.
 - **Book**: cover, title, authors, rating paws (tap the same paw to clear), status, started and finished dates, progress (page of N, or percent when the page count is unknown), collections (toggle, or create one), notes (dated, optional page, edit, delete with Undo), review, and a catalog card of details with Edit details, Fill in from the web (fills only empty fields) and Delete (Undo).
-- **To read**: the queue in order. Drag a row by its handle, or use Top / Up / Down; Start moves a book to Reading.
+- **Reading**: *Reading now* (books with status Reading, each with its progress), this year's goal card (see Reading goals), and *Up next*: the to-read queue in order. Drag a row by its handle, or use Top / Up / Down; Start moves a book to Reading.
+- **Reading stats** (`#/stats`, from "See reading stats" on the goal card): see Reading goals and stats.
 - **Add**: see Online look-ups; also links to the Goodreads import.
 - **Collections**: each with its book count and three covers; tap to open the library filtered to it. Rename, Move up/down, Delete. A link shows books in no collection.
 - **Settings**: Save backup file, Merge a backup; Safety copies; Recently deleted; Goodreads import and export; Cats (Lively, A few, None); Covers status and Fetch now; What's new; Restart now when an update is waiting; Install on iPhone help.
 - **Undo**: bulk status and collection changes, and deleting books, notes or collections, show a toast with Undo. Undo writes the old values back as new edits.
+
+## Reading goals and stats
+
+- **What counts**: a book counts in the year of its `finished` date, whatever its status now (a reread in progress still counted the year it was finished). Deleted books don't count. Goodreads exports only the latest Date Read, so earlier reads of a reread book can't be placed.
+- **Undated reads**: books with status Read and no finish date count in no year. The stats page lists them under "N read books have no finish date"; each opens its book page to set the date.
+- **Pages**: only books with a page count are added up; the goal card and stats say how many books have none.
+- **Goals**: per year, set from the goal card (Set a goal / Edit; clearing both numbers removes it). Past years can have one too ("Add the goal you had"), since Goodreads doesn't export reading-challenge goals.
+- **Pace**: an even pace through the year. `expected = goal × day of year ÷ days in year`; ahead or behind by `round(done − expected)`, otherwise on pace. The meter's tick marks where an even pace would be today. The rate needed to finish counts today as a reading day: "about one every N days" (N ≥ 2), "about one a week / every N weeks" (10+ days apart), or "about N a day". Pages always show a per-day rate.
+- **Statuses**: goal reached (and how far over), missed by N (a past year), starts January 1 (a future year), or ahead / behind / on pace.
+- **Goal card**: the year's headline (books if set, else pages) with a meter per measure; without a goal, the year so far and a Set a goal button. On the Reading tab it links to the stats page.
+- **Stats page**: year chips (years with finished books, years with goals, and this year; newest first), the goal card for that year, totals (books, pages, average rating of rated books, average length), *Books finished each month* (one column per month; the tallest is labelled; hover or focus shows the month's books and pages; each column has a full text description), *Books finished each year* (every year from the first finished book to now, gaps included; the selected year in green, the rest gray; tap one to switch), longest and shortest book (with page counts), and the year's books newest first with finish date and rating (first 10, then Show all). The list doubles as the charts' table view.
 
 ## Cats
 

@@ -2,6 +2,17 @@
 
 Each release's bullets are shown in the app's "What's new" note, so they're written for the person using Catalog. Notes for developers go under a "### Developer" heading, which the app skips.
 
+## 0.3.0 — 2026-11-07
+
+- Reading goals: set a goal for the year in books, pages or both. The Reading tab shows how far along you are, how many are left, and whether you're ahead of or behind an even pace.
+- The To read tab is now Reading: what you're reading now, this year's goal, and your to-read list as Up next.
+- Reading stats: books and pages by month and by year, average rating and length, longest and shortest, and every book you finished in a year. Your Goodreads history fills in past years on its own.
+- Read books without a finish date are listed on the stats page, so you can add the date and count them.
+
+### Developer
+
+- `src/lib/stats.js` (year totals, history, pace), `settings.goals`, `src/ui/charts.js`, `views/reading.js`, `views/goal.js`, `views/stats.js`; the `queue` route is now `reading`.
+
 ## 0.2.0 — 2026-11-07
 
 - Scan barcodes: on the Add tab, tap the barcode button and point your camera at the backs of your books, one after another. One book goes straight to its search result; several are looked up together so you can add them all at once.

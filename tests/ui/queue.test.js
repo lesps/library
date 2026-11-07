@@ -13,13 +13,13 @@ const order = (t) => t.$$('.queue .qitem .q-title').map((e) => e.textContent);
 describe('to-read queue', () => {
   it('lists want-to-read books in queue order', async () => {
     const t = await mount({ books: queue() });
-    t.tab('queue');
+    t.tab('reading');
     expect(order(t)).toEqual(['One', 'Two', 'Three']);
   });
 
   it('moves books up, down and to the top, writing only the moved book', async () => {
     const t = await mount({ books: queue() });
-    t.tab('queue');
+    t.tab('reading');
     t.$$('.queue .qitem')[2].querySelector('.up').click();
     expect(order(t)).toEqual(['One', 'Three', 'Two']);
     t.$$('.queue .qitem')[0].querySelector('.down').click();
@@ -32,15 +32,15 @@ describe('to-read queue', () => {
 
   it('starts reading from the queue', async () => {
     const t = await mount({ books: queue() });
-    t.tab('queue');
+    t.tab('reading');
     t.$$('.queue .qitem')[0].querySelector('.start').click();
     expect(order(t)).toEqual(['Two', 'Three']);
     expect(t.live().find((b) => b.title === 'One').status).toBe('reading');
   });
 
-  it('shows a cat when the queue is empty', async () => {
+  it('says so when the queue is empty', async () => {
     const t = await mount();
-    t.tab('queue');
-    expect(t.$('.empty')).toBeTruthy();
+    t.tab('reading');
+    expect(t.$('.up-next .queue-empty')).toBeTruthy();
   });
 });
