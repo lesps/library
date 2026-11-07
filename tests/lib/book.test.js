@@ -23,6 +23,13 @@ describe('createBook', () => {
   it('derives the ISBN-13 from an ISBN-10 when only that is known', () => {
     expect(createBook({ title: 'X', isbn10: '0451526538' }, { now: T0, id: 'b' }).isbn13).toBe('9780451526533');
   });
+
+  it('keeps the series and the book’s place in it as text ("2.5", "1-3")', () => {
+    const b = createBook({ title: 'X', seriesName: '  The   Expanse ', seriesNumber: 2.5 }, { now: T0, id: 'b' });
+    expect(b).toMatchObject({ seriesName: 'The Expanse', seriesNumber: '2.5' });
+    expect(createBook({ title: 'X' }, { now: T0, id: 'b' })).toMatchObject({ seriesName: '', seriesNumber: '' });
+    expect(createBook({ title: 'X', seriesNumber: 'x'.repeat(50) }, { now: T0, id: 'b' }).seriesNumber).toHaveLength(20);
+  });
 });
 
 describe('updateBook', () => {

@@ -33,6 +33,8 @@ import { statsView } from './views/stats.js';
 import { sanitizeGoals } from '../lib/settings.js';
 import { addView } from './views/add.js';
 import { collectionsView } from './views/collections.js';
+import { seriesView } from './views/series.js';
+import { seriesKey, seriesList, seriesLabel, booksInSeries, wdFindSeriesUrl, parseFoundSeries, pickSeries, wdMembersUrl, parseMembers, matchMember } from '../lib/series.js';
 import { settingsView, snapshotsView, deletedView } from './views/settings.js';
 import { importView } from './views/import.js';
 import { VERSION, CHANGELOG } from '../version.js';
@@ -44,7 +46,7 @@ export const TABS = [
   { view: 'collections', label: 'Collections', icon: 'collections' },
   { view: 'settings', label: 'Settings', icon: 'settings' },
 ];
-const VIEWS = { library: libraryView, book: bookView, reading: readingView, stats: statsView, add: addView, collections: collectionsView, settings: settingsView, import: importView, snapshots: snapshotsView, deleted: deletedView };
+const VIEWS = { library: libraryView, book: bookView, reading: readingView, stats: statsView, add: addView, collections: collectionsView, series: seriesView, settings: settingsView, import: importView, snapshots: snapshotsView, deleted: deletedView };
 const PREF_KEYS = ['layout', 'sort', 'status', 'collection'];
 const DAY = 86_400_000;
 const RETRY_MS = 15_000;
@@ -99,6 +101,7 @@ export function mountApp(root, opts = {}) {
     add: { query: '', status: 'want', phase: 'idle', results: [], paste: null },
     imp: { phase: 'pick' },
     snapshots: null,
+    series: new Map(), // series key → { phase, id (Wikidata), members, picked }: looking up the rest
     statsYear: null,
     statsShowAll: false,
     workers: { remaining: 0, running: false, pausedUntil: 0 },
@@ -121,6 +124,7 @@ export function mountApp(root, opts = {}) {
   let lastCats = null;
   let renderAbort = null;
   let backTo = '/library';
+  let seriesBack = '/collections'; // where a series page's Back goes: often the book it was opened from
   const scrollMemory = new Map();
   const routeKey = () => routePath(state.route);
 
@@ -155,7 +159,7 @@ export function mountApp(root, opts = {}) {
     const view = state.loading ? h('div', { class: 'loading' }, 'Opening your library…') : VIEWS[state.route.view](ctx);
     main.dataset.view = state.route.view;
     main.replaceChildren(...banners(), view);
-    const tab = { book: 'library', import: 'library', stats: 'reading', snapshots: 'settings', deleted: 'settings' }[state.route.view] ?? state.route.view;
+    const tab = { book: 'library', import: 'library', stats: 'reading', series: 'collections', snapshots: 'settings', deleted: 'settings' }[state.route.view] ?? state.route.view;
     for (const b of tabs.children) {
       if (b.dataset.view === tab) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
@@ -191,6 +195,7 @@ export function mountApp(root, opts = {}) {
       scrollMemory.delete(from);
     }
     if (!['book', 'import'].includes(state.route.view)) backTo = from;
+    if (route.view === 'series' && state.route.view !== 'series') seriesBack = from;
     if (route.view !== 'library') state.selection = null;
     if (route.view === 'snapshots') loadSnapshots();
     state.route = route;
@@ -343,7 +348,8 @@ export function mountApp(root, opts = {}) {
             }
           } else {
             const found = parseCoverLookup(await net.get(coverLookupUrl(book), { priority: 'background' }));
-            batch.push([book.id, found ? { ...found } : { coverCheckedAt: now() }]);
+            const { pages, ...cover } = found ?? {};
+            batch.push([book.id, found ? { ...cover, ...(pages && !book.pages ? { pages } : {}) } : { coverCheckedAt: now() }]);
           }
         } catch (e) {
           if (e instanceof OfflineError) { goneOffline(); break; }
@@ -397,7 +403,7 @@ export function mountApp(root, opts = {}) {
     edit({ books, collections: created ? [collection] : [] }, { message: `Added ${plural(books.length, 'book')} to ${collection.name}.` });
   }
 
-  function addBooks(candidates, status, { message = true } = {}) {
+  function addBooks(candidates, status, { message = true, also = [] } = {}) {
     let end = queueEndRank(state.data.books);
     const books = [];
     const reads = [];
@@ -408,9 +414,42 @@ export function mountApp(root, opts = {}) {
       books.push(change.book);
       reads.push(...change.reads);
     }
-    edit({ books, reads }, { message: message ? (books.length === 1 ? `Added ${books[0].title || 'the book'}.` : `Added ${plural(books.length, 'book')}.`) : null });
+    const said = message === true ? (books.length === 1 ? `Added ${books[0].title || 'the book'}.` : `Added ${plural(books.length, 'book')}.`) : message || null;
+    edit({ books: [...books, ...also], reads }, { message: said });
     startWorkers();
     return books;
+  }
+
+  // ——— series on Wikidata ———
+  // The series a book is in: by its Open Library work, then by title and author.
+  async function findSeriesOf(book, knownName, priority) {
+    const tries = book.olWork ? [book, { ...book, olWork: '' }] : [book];
+    for (const b of tries) {
+      const s = pickSeries(parseFoundSeries(await net.get(wdFindSeriesUrl(b), { priority })), knownName);
+      if (s) return s;
+    }
+    return null;
+  }
+
+  // Wikidata's name for a series, spelled the way the library already spells it.
+  const seriesName = (name) => seriesList(state.data.books).find((s) => s.key === seriesKey(name))?.name ?? name;
+  const rememberSeries = (name, id) => {
+    const key = seriesKey(name);
+    const look = state.series.get(key);
+    if (!look?.id) state.series.set(key, { ...look, id });
+  };
+
+  // After adding one book while online: quietly find its series, so the Add page can offer the rest.
+  async function seriesForNewBook(id) {
+    if (!state.online || bookById(id)?.seriesName) return;
+    try {
+      const s = await findSeriesOf(bookById(id), '', 'background');
+      const b = bookById(id);
+      if (!s || !b || b.deleted || b.seriesName) return;
+      const name = seriesName(s.name);
+      rememberSeries(name, s.id);
+      edit({ books: [updateBook(b, { seriesName: name, seriesNumber: s.number }, now())] }, { undoable: false });
+    } catch { /* a nice-to-have: the book page can look again */ }
   }
 
   // A read's dates; returns false (and says why) when the start is after the finish.
@@ -431,7 +470,7 @@ export function mountApp(root, opts = {}) {
 
   const actions = {
     go,
-    back: () => go(backTo || '/library'),
+    back: () => go(state.route.view === 'series' ? seriesBack : backTo || '/library'),
     flush: async () => { while (inflight) await inflight; },
     runWorkers,
     render,
@@ -605,10 +644,22 @@ export function mountApp(root, opts = {}) {
       const b = bookById(id);
       try {
         const [hit] = await lookup(b.isbn13 || `${b.title} ${b.authors[0] ?? ''}`, { limit: 1 });
-        if (!hit) { toast('No details found online for this book.'); return; }
-        const patch = Object.fromEntries(['year', 'pages', 'publisher', 'subtitle', 'coverId', 'coverUrl', 'olWork'].filter((f) => hit[f] != null && hit[f] !== '' && !b[f]).map((f) => [f, hit[f]]));
-        actions.updateBook(id, patch, Object.keys(patch).length ? 'Filled in missing details.' : undefined);
-        if (!Object.keys(patch).length) toast('Nothing new found online.');
+        const patch = hit ? Object.fromEntries(['year', 'pages', 'publisher', 'subtitle', 'coverId', 'coverUrl', 'olWork'].filter((f) => hit[f] != null && hit[f] !== '' && !b[f]).map((f) => [f, hit[f]])) : {};
+        const filled = Object.keys(patch).length > 0;
+        let series = null;
+        if (!b.seriesName) {
+          try {
+            series = await findSeriesOf({ ...b, ...patch }, '', 'user');
+          } catch (e) {
+            if (e instanceof OfflineError) throw e; // Wikidata being down shouldn't hide the details found
+          }
+        }
+        if (series) {
+          Object.assign(patch, { seriesName: seriesName(series.name), seriesNumber: series.number });
+          rememberSeries(patch.seriesName, series.id);
+        }
+        if (!filled && !series) { toast(hit ? 'Nothing new found online.' : 'No details found online for this book.'); return; }
+        actions.updateBook(id, patch, [filled ? 'Filled in missing details.' : '', series ? `Part of ${seriesLabel(patch)}.` : ''].filter(Boolean).join(' '));
       } catch (e) {
         if (e instanceof OfflineError) goneOffline();
         else toast('Couldn’t reach the book service. Try again later.');
@@ -685,6 +736,63 @@ export function mountApp(root, opts = {}) {
       });
     },
 
+    // series
+    seriesLookup: (name) => state.series.get(seriesKey(name)) ?? null,
+    openSeries(name, { find = false } = {}) {
+      go(`/series/${name}`);
+      if (find && actions.seriesLookup(name)?.phase !== 'done') actions.findRest(name);
+    },
+    async findRest(name) {
+      const key = seriesKey(name);
+      const look = state.series.get(key) ?? {};
+      state.series.set(key, { ...look, phase: 'looking' });
+      render();
+      try {
+        let id = look.id;
+        for (const b of id ? [] : booksInSeries(state.data.books, name).slice(0, 2)) {
+          id = (await findSeriesOf(b, name, 'user'))?.id;
+          if (id) break;
+        }
+        const members = id ? parseMembers(await net.get(wdMembersUrl(id), { priority: 'user' })) : [];
+        const picked = new Set(members.filter((m) => m.number && !matchMember(state.data.books, m)).map((m) => m.id));
+        state.series.set(key, { phase: members.length ? 'done' : 'none', id, members, picked });
+      } catch (e) {
+        if (e instanceof OfflineError) goneOffline();
+        state.series.set(key, { ...look, phase: 'error' });
+      }
+      render();
+    },
+    pickRest(name, memberId, on) {
+      const look = state.series.get(seriesKey(name));
+      if (!look?.picked) return;
+      if (on) look.picked.add(memberId);
+      else look.picked.delete(memberId);
+      render();
+    },
+    // Adds the checked books as Want to read, in series order at the end of the queue; books already
+    // in the library that Wikidata lists get their place in the series, in the same undoable edit.
+    addRest(name) {
+      const look = state.series.get(seriesKey(name));
+      if (!look?.members) return;
+      const display = seriesName(name);
+      const fallbackAuthors = booksInSeries(state.data.books, name)[0]?.authors ?? [];
+      const fresh = [];
+      const tag = [];
+      for (const m of look.members) {
+        const have = matchMember(state.data.books, m);
+        if (have) {
+          if (!have.seriesName) tag.push(updateBook(have, { seriesName: display, seriesNumber: m.number }, now()));
+        } else if (look.picked.has(m.id)) {
+          fresh.push({ title: m.title, authors: m.authors.length ? m.authors : fallbackAuthors, olWork: m.olWork, originalYear: m.year, seriesName: display, seriesNumber: m.number, source: 'wikidata' });
+        }
+      }
+      if (!fresh.length && !tag.length) return;
+      addBooks(fresh, 'want', {
+        also: tag,
+        message: fresh.length ? `Added ${plural(fresh.length, 'book')} to Want to read.` : `Marked ${plural(tag.length, 'book')} as part of ${display}.`,
+      });
+    },
+
     // adding
     setAdd(patch) {
       Object.assign(state.add, patch);
@@ -707,10 +815,14 @@ export function mountApp(root, opts = {}) {
       render();
     },
     addCandidate(c) {
-      return addBooks([c], state.add.status)[0];
+      const b = addBooks([c], state.add.status)[0];
+      seriesForNewBook(b.id);
+      return b;
     },
     addManual(fields) {
-      return addBooks([{ ...fields, source: 'manual' }], state.add.status)[0];
+      const b = addBooks([{ ...fields, source: 'manual' }], state.add.status)[0];
+      seriesForNewBook(b.id);
+      return b;
     },
     scan() {
       openScanner({

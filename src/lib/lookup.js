@@ -67,14 +67,16 @@ export function parseGoogle(json) {
 
 export function coverLookupUrl(book) {
   const p = new URLSearchParams(book.isbn13 ? { isbn: book.isbn13 } : { title: book.title, ...(book.authors[0] ? { author: book.authors[0] } : {}) });
-  p.set('fields', 'key,cover_i');
+  p.set('fields', 'key,cover_i,number_of_pages_median');
   p.set('limit', '1');
   return `${OL}?${p}`;
 }
 
 export function parseCoverLookup(json) {
   const d = Array.isArray(json?.docs) ? json.docs.find((x) => Number.isInteger(x?.cover_i) && x.cover_i > 0) : null;
-  return d ? { coverId: d.cover_i, olWork: str(d.key) } : null;
+  if (!d) return null;
+  const pages = Number.isInteger(d.number_of_pages_median) && d.number_of_pages_median > 0 ? d.number_of_pages_median : null;
+  return { coverId: d.cover_i, olWork: str(d.key), ...(pages ? { pages } : {}) };
 }
 
 export function coverSrc(book, size = 'M') {

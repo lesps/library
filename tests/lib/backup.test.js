@@ -42,6 +42,12 @@ describe('backup round trip', () => {
 
   it('is at version 2', () => expect(VERSION).toBe(2));
 
+  it('splits Goodreads series suffixes off titles saved before 0.5', () => {
+    const { seriesName, seriesNumber, ...old } = createBook({ title: 'Mort (Discworld, #4)' }, { now: T, id: 'm' });
+    const parsed = parseBackup(JSON.stringify({ ...exportData(emptyData(), T), books: [old] }));
+    expect(parsed.data.books[0]).toMatchObject({ title: 'Mort', seriesName: 'Discworld', seriesNumber: '4' });
+  });
+
   it('reads backups made before goals existed', () => {
     const { settings, ...rest } = exportData(data, T);
     const parsed = parseBackup(JSON.stringify({ ...rest, settings: { cats: 'off', updatedAt: T } }));

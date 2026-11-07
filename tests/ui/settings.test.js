@@ -131,6 +131,14 @@ describe('covers', () => {
     expect(fetch.calls).toHaveLength(2);
   });
 
+  it('fills a missing page count with the cover, never replacing one', async () => {
+    const { fakeFetch } = await import('./helpers.js');
+    const fetch = fakeFetch([['title=', { docs: [{ key: '/works/W', cover_i: 7, number_of_pages_median: 300 }] }]]);
+    const t = await mount({ fetch, books: [book({ title: 'Oathbringer' }), book({ title: 'Kept', pages: 120 })] });
+    await t.app.actions.runWorkers();
+    expect(t.live().map((b) => [b.title, b.coverId, b.pages])).toEqual([['Oathbringer', 7, 300], ['Kept', 7, 120]]);
+  });
+
   it('does not try while offline', async () => {
     const { fakeFetch } = await import('./helpers.js');
     const fetch = fakeFetch();

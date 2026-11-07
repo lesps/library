@@ -4,6 +4,7 @@ import { sanitizeNote, sanitizeProgress, sanitizeCollection } from './records.js
 import { sanitizeSettings } from './settings.js';
 import { mergeBook, emptyData } from './merge.js';
 import { sanitizeRead, legacyReads } from './reads.js';
+import { seriesFromTitle } from './series.js';
 import { ymd } from './dates.js';
 
 export const FORMAT = 'catalog-library';
@@ -32,12 +33,14 @@ const SANITIZERS = { notes: sanitizeNote, progress: sanitizeProgress, collection
 // Validates every record (bad ones are skipped and counted); a repeated id keeps the newest copy.
 // Data from before reads existed (version 1 backups, older safety copies) has no reads list: the
 // read dates kept on its books become reads, with the same ids the database upgrade gives them.
+// Titles still carrying a Goodreads series suffix (saved before 0.5) have it split off (series.js).
 export function readRecords(input) {
   const raw = Array.isArray(input.reads) ? input : { ...input, reads: (Array.isArray(input.books) ? input.books : []).flatMap(legacyReads) };
   let skipped = 0;
   const books = new Map();
   for (const r of Array.isArray(raw.books) ? raw.books : []) {
-    const b = sanitizeBook(r);
+    const clean = sanitizeBook(r);
+    const b = clean && seriesFromTitle(clean);
     if (!b) skipped += 1;
     else books.set(b.id, books.has(b.id) ? mergeBook(books.get(b.id), b) : b);
   }

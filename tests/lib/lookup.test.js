@@ -50,6 +50,11 @@ describe('covers', () => {
     expect(parseCoverLookup({ docs: [{ key: '/works/W' }] })).toBe(null);
   });
 
+  it('brings a page count along when Open Library has one', () => {
+    expect(new URL(coverLookupUrl({ isbn13: '', title: 'Dune', authors: [] })).searchParams.get('fields')).toContain('number_of_pages_median');
+    expect(parseCoverLookup({ docs: [{ cover_i: 5, key: '/works/W', number_of_pages_median: 412 }] })).toEqual({ coverId: 5, olWork: '/works/W', pages: 412 });
+  });
+
   it('uses cover ids, never ISBN cover URLs (those are rate-limited)', () => {
     expect(coverSrc({ coverId: 42 }, 'M')).toBe('https://covers.openlibrary.org/b/id/42-M.jpg');
     expect(coverSrc({ coverId: null, coverUrl: 'https://g/x' })).toBe('https://g/x');

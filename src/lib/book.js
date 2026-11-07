@@ -6,7 +6,7 @@ import { isIsbn10, isIsbn13, toIsbn13, cleanIsbn } from './isbn.js';
 
 export const STATUSES = ['want', 'reading', 'read', 'none'];
 export const STATUS_LABELS = { want: 'Want to read', reading: 'Reading', read: 'Read', none: 'No status' };
-export const SOURCES = ['manual', 'goodreads', 'openlibrary', 'google', 'backup'];
+export const SOURCES = ['manual', 'goodreads', 'openlibrary', 'google', 'wikidata', 'backup'];
 export const MAX_TITLE = 500;
 export const MAX_TEXT = 20_000;
 
@@ -57,6 +57,8 @@ export const BOOK_FIELDS = {
   coverCheckedAt: ts,
   olWork: text(60),
   goodreadsId: text(30),
+  seriesName: text(200),
+  seriesNumber: text(20), // text, for "2.5" and "1-3"
   status: oneOf(STATUSES, 'none'),
   rating: clampInt(0, 5),
   review: longText,
@@ -140,6 +142,9 @@ export function authorLastFirst(name) {
 }
 
 export const authorSortKey = (name) => authorLastFirst(name).toLowerCase();
+
+// For comparing and searching: no accents, lower case, single spaces.
+export const normalize = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 export const titleSortKey = (title) => String(title ?? '').toLowerCase().replace(/^(the|a|an)\s+/, '').trim();
 

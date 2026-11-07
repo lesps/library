@@ -34,6 +34,11 @@ describe('parseGoodreads', () => {
     expect(martian.privateNotes).toBe('Lent to Sam');
   });
 
+  it('splits the series Goodreads writes into the title', () => {
+    expect(rows[2].fields).toMatchObject({ title: 'The Way of Kings', seriesName: 'The Stormlight Archive', seriesNumber: '1' });
+    expect(rows[0].fields).toMatchObject({ title: 'The Martian', seriesName: '', seriesNumber: '' });
+  });
+
   it('maps the exclusive shelf to a status; custom ones become a collection', () => {
     expect(rows.map((r) => r.fields.status)).toEqual(['read', 'want', 'want', 'reading', 'none']);
     expect(rows[4].shelves).toEqual(['did-not-finish']);
@@ -78,7 +83,7 @@ describe('planImport', () => {
     expect(martian.collectionIds).toHaveLength(2);
     expect(data.notes[0]).toMatchObject({ bookId: martian.id, text: 'Lent to Sam' });
     const want = data.books.filter((b) => b.status === 'want').sort((a, b) => (a.queueRank < b.queueRank ? -1 : 1));
-    expect(want.map((b) => b.title)).toEqual(['The Way of Kings (The Stormlight Archive, #1)', 'Fahrenheit 451']);
+    expect(want.map((b) => b.title)).toEqual(['The Way of Kings', 'Fahrenheit 451']);
   });
 
   it('re-importing the same export changes nothing', () => {
@@ -114,6 +119,16 @@ describe('planImport', () => {
     expect(plan.collections.map((c) => c.name)).not.toContain('Sci-fi');
   });
 
+  it('gives a matched book its Goodreads series when it has none, never replacing one', () => {
+    const mine = { ...emptyData(), books: [
+      createBook({ title: 'The Way of Kings', isbn13: '9780765326355' }, { now: T, id: 'k' }),
+      createBook({ title: 'The Martian', isbn13: '9780553418026', seriesName: 'Mars', seriesNumber: '' }, { now: T, id: 'm' }),
+    ] };
+    const plan = planImport(rows, mine, { now: T + 1 });
+    expect(plan.edits.books.find((b) => b.id === 'k')).toMatchObject({ seriesName: 'The Stormlight Archive', seriesNumber: '1' });
+    expect(plan.edits.books.find((b) => b.id === 'm')).toMatchObject({ seriesName: 'Mars', seriesNumber: '' });
+  });
+
   it('can leave books already in the library alone', () => {
     const first = applyEdits(emptyData(), planImport(rows, emptyData(), { now: T }).edits);
     const later = rows.map((r) => ({ ...r, fields: { ...r.fields, rating: 1 }, reads: { ...r.reads, count: 9 } }));
@@ -144,5 +159,6 @@ describe('goodreadsCsv', () => {
     expect(martian.Bookshelves).toBe('sci-fi, favorites');
     const back = parseGoodreads(csv).rows.map((r) => r.fields.title).sort();
     expect(back).toEqual(data.books.map((b) => b.title).sort());
+    expect(rows.find((r) => r.Title.startsWith('The Way of Kings')).Title).toBe('The Way of Kings (The Stormlight Archive, #1)');
   });
 });

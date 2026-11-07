@@ -1,10 +1,11 @@
 // Views over the in-memory library: filtering, search, sorting, the to-read queue.
-import { titleSortKey, bookAuthorSort } from './book.js';
+import { titleSortKey, bookAuthorSort, normalize } from './book.js';
 import { rankBetween } from './rank.js';
 import { cleanIsbn } from './isbn.js';
 import { readCounts } from './reads.js';
+import { bySeriesNumber } from './series.js';
 
-export const normalize = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+export { normalize };
 
 const byStr = (key) => (a, b) => key(a).localeCompare(key(b));
 const tie = (cmp) => (a, b) => cmp(a, b) || titleSortKey(a.title).localeCompare(titleSortKey(b.title));
@@ -14,12 +15,15 @@ export const SORTS = {
   title: { label: 'Title', cmp: tie(byStr((b) => titleSortKey(b.title))) },
   author: { label: 'Author', cmp: tie(byStr(bookAuthorSort)) },
   rating: { label: 'My rating', cmp: tie((a, b) => b.rating - a.rating) },
+  series: { label: 'Series', cmp: (a, b) => (!a.seriesName - !b.seriesName)
+    || titleSortKey(a.seriesName).localeCompare(titleSortKey(b.seriesName))
+    || (a.seriesName ? bySeriesNumber(a, b) : titleSortKey(a.title).localeCompare(titleSortKey(b.title))) },
   finished: { label: 'Date read', cmp: (last) => tie((a, b) => (last.get(b.id)?.last || '').localeCompare(last.get(a.id)?.last || '')) },
   updated: { label: 'Recently changed', cmp: (a, b) => b.updatedAt - a.updatedAt },
 };
 
 function haystack(b, noteText) {
-  return normalize([b.title, b.subtitle, ...b.authors, b.isbn13, b.isbn10, b.publisher, noteText, b.review].join(' '));
+  return normalize([b.title, b.subtitle, ...b.authors, b.seriesName, b.isbn13, b.isbn10, b.publisher, noteText, b.review].join(' '));
 }
 
 // status: a status or 'all'; collection: an id, 'none' (in no collection) or 'all'; query: words.

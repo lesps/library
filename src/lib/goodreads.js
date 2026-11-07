@@ -8,6 +8,7 @@ import { createBook, updateBook, authorLastFirst } from './book.js';
 import { reconcileReads, readCounts } from './reads.js';
 import { createNote, createCollection, findCollection } from './records.js';
 import { findDuplicate } from './library.js';
+import { parseSeriesTitle, seriesTitle } from './series.js';
 import { rankBetween, spreadRanks } from './rank.js';
 
 export const HEADERS = ['Book Id', 'Title', 'Author', 'Author l-f', 'Additional Authors', 'ISBN', 'ISBN13', 'My Rating', 'Average Rating', 'Publisher', 'Binding', 'Number of Pages', 'Year Published', 'Original Publication Year', 'Date Read', 'Date Added', 'Bookshelves', 'Bookshelves with positions', 'Exclusive Shelf', 'My Review', 'Spoiler', 'Private Notes', 'Read Count', 'Owned Copies'];
@@ -52,8 +53,10 @@ export function parseGoodreads(text) {
   let skipped = 0;
   const out = [];
   for (const r of rows) {
-    const title = r.Title.trim();
-    if (!title) { skipped += 1; continue; }
+    const full = r.Title.trim();
+    if (!full) { skipped += 1; continue; }
+    const series = parseSeriesTitle(full); // "Mort (Discworld, #4)"
+    const title = series?.title ?? full;
     const exclusive = r['Exclusive Shelf'].trim();
     const status = SHELF_STATUS[exclusive] ?? 'none';
     const shelves = r.Bookshelves.split(',').map((s) => s.trim()).filter((s) => s && !(s in SHELF_STATUS));
@@ -65,6 +68,8 @@ export function parseGoodreads(text) {
       goodreadsId: r['Book Id'].trim(),
       fields: {
         title,
+        seriesName: series?.name ?? '',
+        seriesNumber: series?.number ?? '',
         authors: [r.Author, ...r['Additional Authors'].split(',')].map((a) => a.trim()).filter(Boolean),
         authorSort: r['Author l-f'],
         isbn10: cleanIsbn(r.ISBN),
@@ -152,6 +157,7 @@ export function planImport(rows, data, { now, updateExisting = true }) {
       if (f.rating > 0) patch.rating = f.rating;
       if (f.review) patch.review = f.review;
       for (const k of FILL_IF_EMPTY) if (!current[k] && f[k]) patch[k] = f[k];
+      if (!current.seriesName && f.seriesName) Object.assign(patch, { seriesName: f.seriesName, seriesNumber: f.seriesNumber });
       const ids = row.shelves.map(collectionId);
       if (ids.some((id) => !current.collectionIds.includes(id))) patch.collectionIds = [...current.collectionIds, ...ids.filter((id) => !current.collectionIds.includes(id))];
       book = updateBook(current, patch, now);
@@ -203,7 +209,7 @@ export function goodreadsCsv(data) {
     const shelves = [...(exclusive && exclusive !== 'read' ? [exclusive] : []), ...custom];
     const positions = shelves.map((s) => (s === 'to-read' ? `to-read (#${position.get(b.id)})` : s));
     return [
-      b.goodreadsId, b.title, b.authors[0] ?? '', b.authorSort || authorLastFirst(b.authors[0] ?? ''), b.authors.slice(1).join(', '),
+      b.goodreadsId, seriesTitle(b), b.authors[0] ?? '', b.authorSort || authorLastFirst(b.authors[0] ?? ''), b.authors.slice(1).join(', '),
       `="${b.isbn10}"`, `="${b.isbn13}"`, b.rating, '', b.publisher, b.binding, b.pages ?? '', b.year ?? '', b.originalYear ?? '',
       slashDate(times.get(b.id)?.last ?? ''), slashDate(ymd(new Date(b.addedAt))), shelves.join(', '), positions.join(', '),
       exclusive, reviewHtml(b.review), '', (notesBy.get(b.id) ?? []).join('\n\n'), times.get(b.id)?.count ?? 0, b.owned ? 1 : 0,

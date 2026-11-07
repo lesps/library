@@ -16,6 +16,11 @@ const books = [
   { ...book({ title: 'Deleted', status: 'read' }), deleted: true },
   book({ title: 'Persuasion', authors: ['Jane Austen'], status: 'want' }),
 ];
+const withSeries = [
+  ...books,
+  book({ title: 'Caliban’s War', authors: ['James S. A. Corey'], seriesName: 'The Expanse', seriesNumber: '2' }),
+  book({ title: 'Leviathan Wakes', authors: ['James S. A. Corey'], seriesName: 'The Expanse', seriesNumber: '1' }),
+];
 const notes = [createNote({ bookId: books[4].id, text: 'monastery of mathematicians' }, { now: T, id: 'n1' })];
 const titles = (bs) => bs.map((b) => b.title);
 
@@ -38,6 +43,14 @@ describe('queryBooks', () => {
     expect(titles(queryBooks(books, { query: '978-0061474095' }))).toEqual(['Anathem']);
     expect(titles(queryBooks(books, { query: 'mathematicians', notes }))).toEqual(['Anathem']);
     expect(queryBooks(books, { query: 'zzz' })).toEqual([]);
+  });
+
+  it('finds books by series', () => {
+    expect(titles(queryBooks(withSeries, { query: 'expanse', sort: 'title' }))).toEqual(['Caliban’s War', 'Leviathan Wakes']);
+  });
+
+  it('sorts by series: each series in order, then books in no series by title', () => {
+    expect(titles(queryBooks(withSeries, { sort: 'series' })).slice(0, 4)).toEqual(['Leviathan Wakes', 'Caliban’s War', 'Anathem', 'Cien años de soledad']);
   });
 
   it('sorts by title (ignoring articles), author surname, rating, finish date and recency', () => {

@@ -7,6 +7,7 @@ import { currentProgress, progressPercent } from '../../lib/records.js';
 import { formatDate, dayKey } from '../../lib/dates.js';
 import { readsOf, openRead, groupNotes } from '../../lib/reads.js';
 import { formatIsbn, toIsbn13, cleanIsbn, isIsbn10 } from '../../lib/isbn.js';
+import { seriesLabel } from '../../lib/series.js';
 
 const STATUS_ORDER = ['want', 'reading', 'read', 'none'];
 
@@ -24,6 +25,8 @@ export function editDetails(actions, b) {
       { name: 'title', label: 'Title', value: b.title },
       { name: 'subtitle', label: 'Subtitle', value: b.subtitle },
       { name: 'authors', label: 'Authors', value: b.authors.join(', '), hint: 'Separate several with commas.' },
+      { name: 'seriesName', label: 'Series', value: b.seriesName },
+      { name: 'seriesNumber', label: 'Number in the series', value: b.seriesNumber, hint: 'Like 1, or 2.5 for a novella between 2 and 3.' },
       { name: 'isbn', label: 'ISBN', value: b.isbn13 || b.isbn10, inputmode: 'numeric' },
       { name: 'pages', label: 'Pages', value: b.pages ?? '', inputmode: 'numeric' },
       { name: 'year', label: 'Year published', value: b.year ?? '', inputmode: 'numeric' },
@@ -34,7 +37,8 @@ export function editDetails(actions, b) {
     onSubmit: (v) => {
       const isbn = cleanIsbn(v.isbn);
       actions.updateBook(b.id, {
-        title: v.title, subtitle: v.subtitle, authors: v.authors.split(','), pages: v.pages, year: v.year,
+        title: v.title, subtitle: v.subtitle, authors: v.authors.split(','), seriesName: v.seriesName, seriesNumber: v.seriesName.trim() ? v.seriesNumber : '',
+        pages: v.pages, year: v.year,
         publisher: v.publisher, binding: v.binding, owned: v.owned,
         isbn13: toIsbn13(isbn), isbn10: isIsbn10(isbn) ? isbn : (isbn ? '' : b.isbn10),
         needsLookup: v.title.trim() ? false : b.needsLookup,
@@ -214,7 +218,7 @@ function catalogCard(ctx, b) {
       row('Format', b.binding),
       row('Owned', b.owned ? 'Yes' : ''),
       row('Added', formatDate(dayKey(b.addedAt))),
-      row('From', { goodreads: 'Goodreads import', openlibrary: 'Open Library', google: 'Google Books', manual: 'Added by hand', backup: 'Backup' }[b.source])),
+      row('From', { goodreads: 'Goodreads import', openlibrary: 'Open Library', google: 'Google Books', wikidata: 'Wikidata (series)', manual: 'Added by hand', backup: 'Backup' }[b.source])),
     h('div', { class: 'card-actions' },
       h('button', { type: 'button', class: 'btn small edit-details', onclick: () => editDetails(actions, b) }, 'Edit details'),
       h('button', { type: 'button', class: 'btn small refresh', disabled: !state.online, title: state.online ? null : 'Needs the internet', onclick: () => actions.refreshDetails(b.id) }, 'Fill in from the web'),
@@ -234,6 +238,7 @@ export function bookView(ctx) {
         h('h1', {}, displayTitle(b)),
         b.subtitle ? h('p', { class: 'subtitle' }, b.subtitle) : null,
         h('p', { class: 'authors' }, b.authors.join(', ')),
+        b.seriesName ? h('button', { type: 'button', class: 'link series-link', onclick: () => actions.openSeries(b.seriesName) }, seriesLabel(b)) : null,
         b.needsLookup ? h('p', { class: 'muted' }, state.online ? 'Looking up details…' : 'Details will fill in when you’re online.') : null,
         rating(actions, b))),
     statusPicker(actions, b),

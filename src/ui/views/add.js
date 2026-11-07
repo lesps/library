@@ -5,6 +5,7 @@ import { mascot } from '../cat-layer.js';
 import { STATUS_LABELS } from '../../lib/book.js';
 import { findDuplicate } from '../../lib/library.js';
 import { isbnFromQuery, cleanIsbn, toIsbn13, isIsbn10, formatIsbn } from '../../lib/isbn.js';
+import { seriesLabel } from '../../lib/series.js';
 
 function manualDialog(ctx) {
   const { state, actions } = ctx;
@@ -41,7 +42,9 @@ function result(ctx, c) {
     h('div', { class: 'r-text' },
       h('span', { class: 'r-title' }, c.title),
       h('span', { class: 'r-author' }, c.authors.join(', ')),
-      h('span', { class: 'r-meta' }, [c.year, c.pages ? `${c.pages} pages` : null, c.isbn13 ? formatIsbn(c.isbn13) : null].filter(Boolean).join(' · '))),
+      h('span', { class: 'r-meta' }, [c.year, c.pages ? `${c.pages} pages` : null, c.isbn13 ? formatIsbn(c.isbn13) : null].filter(Boolean).join(' · ')),
+      dup?.seriesName ? h('button', { type: 'button', class: 'link r-series', onclick: () => actions.openSeries(dup.seriesName, { find: true }) },
+        seriesLabel(dup), h('span', { class: 'r-series-go' }, ' · Add the rest')) : null),
     dup
       ? h('button', { type: 'button', class: 'btn small ghost', onclick: () => actions.go(`/book/${dup.id}`) }, 'In library')
       : h('button', { type: 'button', class: 'btn small primary add-result', onclick: () => actions.addCandidate(c) }, 'Add'));

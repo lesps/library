@@ -13,7 +13,8 @@ All records live in IndexedDB (database `catalog`, schema version 2). Memory hol
   "id": "uuid", "title": "Dune", "subtitle": "", "authors": ["Frank Herbert"], "authorSort": "Herbert, Frank",
   "isbn10": "", "isbn13": "9780441013593", "publisher": "Ace", "year": 1990, "originalYear": 1965,
   "pages": 412, "binding": "Paperback", "coverId": 12345, "coverUrl": "", "coverCheckedAt": 0, "olWork": "/works/OL893415W",
-  "goodreadsId": "234225", "status": "read", "rating": 5, "review": "", "collectionIds": ["uuid"],
+  "goodreadsId": "234225", "seriesName": "Dune", "seriesNumber": "1",
+  "status": "read", "rating": 5, "review": "", "collectionIds": ["uuid"],
   "queueRank": "", "owned": true,
   "needsLookup": false, "deleted": false,
   "source": "goodreads", "addedAt": 1762500000000, "fieldAt": { "title": 1762500000000, "…": 0 }, "updatedAt": 1762500000000
@@ -24,6 +25,8 @@ All records live in IndexedDB (database `catalog`, schema version 2). Memory hol
 - When a book was read lives in its reads (below), not on the book. Status changes carry their reads: entering `reading` opens a read started today (unless one is open, so reading a read book again is a reread); entering `read` closes the open read with today's date, or adds a read finished today; entering `want` or `none` deletes an unfinished read (finished reads are kept); entering `want` also puts the book at the end of the queue.
 - Books saved before 0.4 also carry `started`, `finished` and `readCount`. They're no longer book fields: the database upgrade and the backup reader turn them into reads (see Reads), and they're dropped the next time the book is saved.
 - `collectionIds`: any number of collections.
+- `seriesName`, `seriesNumber`: the series and the book's place in it. The number is text ("1", "2.5" for a novella between 2 and 3, "1-3" for an omnibus) and sorts by its leading number. Books with the same series name (ignoring case and accents) form a series; see Series.
+- A title that still ends in a Goodreads series suffix ("Mort (Discworld, #4)", or "(Discworld #4)", or "(Discworld, #8; City Watch, #1)", which takes the first) on a book with no series has it split off whenever records are read: at launch, from a backup or from a safety copy. The split fields take the title's own `fieldAt` stamp rather than now, so devices that convert separately produce identical records; the stored record is rewritten the next time the book is saved.
 - `queueRank`: the book's place in the to-read queue (see Ordering). Only meaningful while `status` is `want`.
 - `rating`: 0 (unrated) to 5, shown as paws.
 - `coverId`: an Open Library cover id; `coverUrl`: an https Google Books thumbnail. `coverCheckedAt`: when a cover look-up last found nothing (retried after 30 days).
@@ -120,7 +123,7 @@ From Goodreads: My Books → Import and export → Export Library (desktop site 
 | Goodreads | Catalog |
 | --- | --- |
 | Book Id | `goodreadsId` (the re-import match key) |
-| Title, Author, Additional Authors, Author l-f | `title`, `authors`, `authorSort` |
+| Title, Author, Additional Authors, Author l-f | `title`, `authors`, `authorSort`; a series suffix in the title ("The Way of Kings (The Stormlight Archive, #1)") becomes `seriesName` and `seriesNumber` |
 | ISBN, ISBN13 (written as `="…"`) | `isbn10`, `isbn13` (empty `=""` ignored) |
 | My Rating, Publisher, Binding, Number of Pages, Year Published, Original Publication Year | `rating`, `publisher`, `binding`, `pages`, `year`, `originalYear` |
 | Date Read, Read Count | reads: the Date Read is the latest finished read, and Read Count (at least 1 for read books) is made up with reads of unknown date; currently-reading books get a read in progress. Goodreads keeps every read's dates on its site but exports only these two. |
@@ -134,17 +137,17 @@ From Goodreads: My Books → Import and export → Export Library (desktop site 
 
 - Rows without a title are skipped and counted.
 - Matching, in order: Goodreads id, then ISBN-13, then title (ignoring leading articles) plus first author. Collections are reused by name, ignoring case.
-- Matched books (when "Update books I already have" is on, the default) take Goodreads' status, owned flag and id; its rating and review when Goodreads has one; any reads they're missing (a Date Read with no read finished that day, or fewer finished reads than Read Count), so a reread logged on Goodreads since the last export arrives as a new read; and fill in ISBN, pages, publisher, years, format and author sort only where Catalog has none. Collections are added, never removed. A private note is added unless the book already has a note with the same text.
+- Matched books (when "Update books I already have" is on, the default) take Goodreads' status, owned flag and id; its rating and review when Goodreads has one; any reads they're missing (a Date Read with no read finished that day, or fewer finished reads than Read Count), so a reread logged on Goodreads since the last export arrives as a new read; and fill in ISBN, pages, publisher, years, format, author sort and series (name and number together) only where Catalog has none. Collections are added, never removed. A private note is added unless the book already has a note with the same text.
 - New to-read books join the end of the queue in their Goodreads to-read order.
 - The preview shows new books, updated books, unchanged books, new collections and notes. Import takes a safety copy first and writes everything in one transaction. Importing the same file twice changes nothing.
 
 ### Export
 
-Settings → Export Goodreads CSV writes Goodreads' exact columns (`="…"` ISBNs, `yyyy/mm/dd` dates, Date Read from the latest finished read and Read Count from the number of finished reads, shelves from collection names, `to-read (#n)` positions from the queue, notes joined into Private Notes), so Goodreads, StoryGraph and others can import it, and Catalog can re-import it. A selection can be exported the same way.
+Settings → Export Goodreads CSV writes Goodreads' exact columns (titles with their series suffix put back when the book has a series number, `="…"` ISBNs, `yyyy/mm/dd` dates, Date Read from the latest finished read and Read Count from the number of finished reads, shelves from collection names, `to-read (#n)` positions from the queue, notes joined into Private Notes), so Goodreads, StoryGraph and others can import it, and Catalog can re-import it. A selection can be exported the same way.
 
 ## Online look-ups
 
-The only network use. Nothing about the library is sent anywhere except the search text, ISBN, or title and author being looked up.
+The only network use. Nothing about the library is sent anywhere except what's being looked up: the search text, an ISBN, a title and author, or an Open Library work id (to Wikidata, for series).
 
 - **Search** (Add tab): an ISBN (any punctuation, checksum-valid ISBN-10 or -13) searches by ISBN; anything else is a text search. Open Library first; Google Books when Open Library has nothing.
 - Open Library results carry the ISBN only when searching by it: a work has many editions, and the others aren't known to be this one.
@@ -155,6 +158,8 @@ The only network use. Nothing about the library is sent anywhere except the sear
 - **Paste a list**: up to 200 lines, each an ISBN or title, looked up one by one. Matches are pre-ticked unless already in the library; Add adds the ticked ones.
 - **Requests** go one at a time, at most one per 1.1 seconds per host (Open Library allows anonymous browser clients about one a second). Searches the person is waiting for go ahead of background work.
 - **Background work**, while online: first, books saved for later (`needsLookup`) get their details; then books without a cover get one, newest first. Covers are looked up as Open Library cover ids and shown with `covers.openlibrary.org/b/id/{id}-{S|M|L}.jpg`. ISBN-keyed cover URLs are never used: Open Library limits them to 100 per 5 minutes per IP. A miss stamps `coverCheckedAt`; it's retried after 30 days, or straight away via the bulk action "Look for covers again". Results are saved in batches of six. A 403, 429 or 5xx pauses background work for 5 minutes.
+- **Background covers** also bring a page count (Open Library's median for the work) when the book has none.
+- **Series** (Wikidata): see Series. After one book is added from search or by hand while online, Catalog asks Wikidata which series it's in (background priority) and, if it finds one and the book has none, sets it.
 - **Offline**: detected from the browser's online/offline events and from any failed request. Search, Paste a list and "Fill in from the web" are disabled with a note saying why. "Save ISBN for later" adds a placeholder book whose details fill in when the app is next online.
 - **Scanner offline**: the decoder isn't part of the offline download; it's cached (`scanner` cache) the first time someone scans.
 - **Covers offline**: the service worker caches cover images (cache-first, at most 500, kept a year, and the whole cache dropped first if storage runs short so covers can never crowd out the library). Covers that aren't cached show a generated cloth-bound cover with the title and author. Search API answers are never cached.
@@ -163,15 +168,27 @@ The only network use. Nothing about the library is sent anywhere except the sear
 
 Bottom tabs: **Library**, **Reading**, **Add**, **Collections**, **Settings**.
 
-- **Library**: search (title, subtitle, authors, ISBN, publisher, review and notes; every word must match; accents and case ignored), status chips with counts, a collection filter (or "In no collection"), sort (recently added, title ignoring articles, author surname, rating, date read (the latest finished read), recently changed), grid or list; list rows say "Read N×" for books read more than once. Layout, sort and filters are remembered. Only the rows on screen are drawn, so thousands of books scroll smoothly.
+- **Library**: search (title, subtitle, authors, series, ISBN, publisher, review and notes; every word must match; accents and case ignored), status chips with counts, a collection filter (or "In no collection"), sort (recently added, title ignoring articles, author surname, rating, series (each series in order, then books in no series by title), date read (the latest finished read), recently changed), grid or list; list rows say "Read N×" for books read more than once, and name the series and number. Layout, sort and filters are remembered. Only the rows on screen are drawn, so thousands of books scroll smoothly.
 - **Select mode** (Select, or long-press a book): tap to toggle, shift-click for a range, "Select all N" for everything matching the current filters. Actions: Status, Collection (add to any, create a new one, remove from any the selection is in), Delete (asks first, takes a safety copy, Undo), More (look for covers again, export as Goodreads CSV). Done leaves select mode.
-- **Book**: cover, title, authors, rating paws (tap the same paw to clear), status, progress for the read in progress (page of N, or percent when the page count is unknown), **Reads** (each read with its dates and note count, which jumps to its notes; Edit; Delete with Undo; **Start a reread** for a book read before with none in progress; **Add a past read**, dates optional), collections (toggle, or create one), **notes** (dated, optional page, edit, delete with Undo; an **About** picker chooses the read or the book in general, defaulting to the read in progress; once the book has reads, notes are grouped by read, in the same order as the Reads card, then the book in general, so each read's impressions can be compared), review, and a catalog card of details with Edit details, Fill in from the web (fills only empty fields) and Delete (Undo).
+- **Book**: cover, title, authors, the series and number (opens the series page), rating paws (tap the same paw to clear), status, progress for the read in progress (page of N, or percent when the page count is unknown), **Reads** (each read with its dates and note count, which jumps to its notes; Edit; Delete with Undo; **Start a reread** for a book read before with none in progress; **Add a past read**, dates optional), collections (toggle, or create one), **notes** (dated, optional page, edit, delete with Undo; an **About** picker chooses the read or the book in general, defaulting to the read in progress; once the book has reads, notes are grouped by read, in the same order as the Reads card, then the book in general, so each read's impressions can be compared), review, and a catalog card of details with Edit details, Fill in from the web (fills only empty fields) and Delete (Undo).
 - **Reading**: *Reading now* (books with status Reading, each with its progress), this year's goal card (see Reading goals), and *Up next*: the to-read queue in order. Drag a row by its handle, or use Top / Up / Down; Start moves a book to Reading.
 - **Reading stats** (`#/stats`, from "See reading stats" on the goal card): see Reading goals and stats.
 - **Add**: see Online look-ups; also links to the Goodreads import.
-- **Collections**: each with its book count and three covers; tap to open the library filtered to it. Rename, Move up/down, Delete. A link shows books in no collection.
+- **Collections**: each with its book count and three covers; tap to open the library filtered to it. Rename, Move up/down, Delete. A link shows books in no collection. Below them, **Series**: every series with a book in the library, by name (ignoring leading articles), with its book count and covers; tap to open it.
 - **Settings**: Save backup file, Merge a backup; Safety copies; Recently deleted; Goodreads import and export; Cats (Lively, A few, None); Covers status and Fetch now; What's new; Restart now when an update is waiting; Install on iPhone help.
 - **Undo**: bulk status and collection changes, and deleting books, notes or collections, show a toast with Undo. Undo writes the old values back as new edits.
+
+## Series
+
+A series is the books sharing a `seriesName`; there's no separate series record, so series merge, back up and undo with their books.
+
+- **Where series names come from**: Goodreads titles (on import, and for books imported before 0.5); Edit details (Series, Number in the series); Wikidata, for a book just added and through Fill in from the web on any book without a series; and "Add the rest" below. A Wikidata name is spelled the way the library already spells that series, when it has it.
+- **Series page** (`#/series/<name>`, from the book page's series line, the Collections tab, or an Add result's "Add the rest"): the series' books in number order (books without a number last), each with its number, cover and status, tapping through to the book. Back returns to where the page was opened from.
+- **Find the rest** (online): asks Wikidata's query service (`query.wikidata.org/sparql`, which allows browsers) for the series. It's found from the series' first two books: by Open Library work id (P648) when the book has one, else by English title and the first author's surname. Of the series a book belongs to (P179), the one named like the library's series wins, then one that numbers the book (the P1545 qualifier), then the first. Its members are then listed: every item that's part of the series, except editions (P629) and sub-series, one per book with its number, earliest publication year (P577), authors (P50) and Open Library work id; items without an English title are left out.
+- The page then shows **one shelf**: the library's books and the missing ones in series order. Missing books show an empty slot and a checkbox, ticked for numbered books and unticked for unnumbered ones (companions, short fiction). A library book Wikidata lists (same Open Library work, or same title ignoring leading articles) is shown as yours even if it has no series yet.
+- **Add N to Want to read** adds the ticked books with status Want to read, at the end of the queue in series order, with the series name and number, authors (the series' first author when Wikidata lists none), original year and Open Library work id; `source` is `wikidata`. Library books Wikidata lists that have no series get it in the same edit. One toast, one Undo. Covers and page counts arrive with the background cover look-up.
+- **Add page**: a result already in the library that has a series shows "Series #n · Add the rest", which opens the series page and finds the rest straight away.
+- When Wikidata has nothing, the page says so; when it doesn't answer, Try again. Lookups aren't cached between launches.
 
 ## Reading goals and stats
 

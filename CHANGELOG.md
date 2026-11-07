@@ -2,6 +2,19 @@
 
 Each release's bullets are shown in the app's "What's new" note, so they're written for the person using Catalog. Notes for developers go under a "### Developer" heading, which the app skips.
 
+## 0.5.0 — 2026-11-07
+
+- Series: books in a series now know it. Your Goodreads series come over from the titles ("The Way of Kings (The Stormlight Archive, #1)" becomes The Way of Kings, The Stormlight Archive #1), including books you've already imported.
+- Each series has a page with its books in order. Open it from a book's series line, or from Series on the Collections tab.
+- Find the rest: a series page can look up the whole series online and show the books you don't have in their places. Tick the ones you want and add them to Want to read in one go, in series order.
+- Add a book from search and Catalog checks whether it starts (or continues) a series; if so, the result says "Add the rest".
+- Set or fix a book's series in Edit details. The library can sort by series, and search finds books by series name.
+- Books added without a page count get one along with their cover, when Open Library knows it.
+
+### Developer
+
+- `src/lib/series.js`, `views/series.js`; book fields `seriesName`, `seriesNumber`; `readRecords` splits Goodreads series suffixes off older titles (stamped with the title's own time); Wikidata SPARQL (`query.wikidata.org`) for series lookups; `source: 'wikidata'`.
+
 ## 0.4.0 — 2026-11-07
 
 - Rereads: each time you read a book is now a read of its own, with its own dates. On a book's page, Reads lists them all; tap Start a reread to read it again, or Add a past read for one you remember.

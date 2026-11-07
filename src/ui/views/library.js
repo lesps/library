@@ -6,6 +6,7 @@ import { shelf } from '../shelf.js';
 import { queryBooks, statusCounts, SORTS } from '../../lib/library.js';
 import { STATUS_LABELS } from '../../lib/book.js';
 import { readCounts } from '../../lib/reads.js';
+import { seriesLabel } from '../../lib/series.js';
 
 const CHIPS = [['all', 'All'], ['reading', 'Reading'], ['want', 'Want to read'], ['read', 'Read'], ['none', 'No status']];
 const LONG_PRESS = 450;
@@ -57,6 +58,7 @@ export function libraryView(ctx) {
         h('span', { class: 'title' }, displayTitle(b)),
         h('span', { class: 'author' }, b.needsLookup ? 'Details pending' : b.authors.join(', ')),
         lib.layout === 'list' ? h('span', { class: 'row-extra' }, stamp(b.status), paws(b.rating, 'small'),
+          b.seriesName ? h('span', { class: 'series' }, seriesLabel(b)) : null,
           (times.get(b.id)?.count ?? 0) > 1 ? h('span', { class: 'reads-count' }, `Read ${times.get(b.id).count}×`) : null,
           b.collectionIds.length ? h('span', { class: 'in' }, b.collectionIds.map((id) => nameOf.get(id)).filter(Boolean).join(', ')) : null) : null),
       lib.layout === 'grid' && b.status === 'reading' ? h('span', { class: 'ribbon' }, 'Reading') : null,
