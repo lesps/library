@@ -76,6 +76,7 @@ export function mountApp(root, opts = {}) {
   const net = createNet({ fetch: opts.fetch ?? win.fetch?.bind(win), delay: opts.delay, now });
   const channel = opts.channel !== undefined ? opts.channel : (typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('catalog') : null);
   const workersOn = opts.workers ?? true;
+  const openScanner = opts.openScanner ?? ((o) => import('./scanner.js').then((m) => m.openScanner(o)));
   const today = () => dayKey(now());
 
   let store = opts.store ?? null;
@@ -677,6 +678,28 @@ export function mountApp(root, opts = {}) {
     },
     addManual(fields) {
       return addBooks([{ ...fields, source: 'manual' }], state.add.status)[0];
+    },
+    scan() {
+      openScanner({
+        onDone: (isbns) => {
+          if (!isbns.length) return;
+          if (!state.online && isbns.length > 1) { actions.saveManyForLater(isbns); return; }
+          if (isbns.length === 1) {
+            state.add.query = isbns[0];
+            if (state.online) actions.search();
+            else actions.saveManyForLater(isbns);
+            return;
+          }
+          actions.lookupList(isbns.join('\n'));
+        },
+      }).catch(() => toast('The camera couldn’t be opened.'));
+    },
+    saveManyForLater(isbns) {
+      const fresh = [...new Set(isbns)].filter((isbn13) => !findDuplicate(state.data.books, { isbn13 }));
+      if (fresh.length) addBooks(fresh.map((isbn13) => ({ isbn13, needsLookup: true, source: 'manual' })), state.add.status, { message: false });
+      const skipped = new Set(isbns).size - fresh.length;
+      toast(`Saved ${plural(fresh.length, 'book')}${skipped ? ` (${skipped} already in your library)` : ''}. Details fill in when you’re online.`);
+      render();
     },
     saveForLater(isbn13) {
       if (findDuplicate(state.data.books, { isbn13 })) { toast('That book is already in your library.'); return; }

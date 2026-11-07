@@ -5,7 +5,7 @@ A personal library app, looked after by cats. The organizing half of Goodreads: 
 **Live:** https://lesps.github.io/library/
 
 - **Bring your Goodreads library.** Shelves become collections, private notes become notes, your to-read order is kept. Import a newer export later and books update instead of duplicating.
-- **Add books** by title, author or ISBN (Open Library, then Google Books), by hand when a search comes up empty, or paste a list of ISBNs and titles to add many at once. Offline, save an ISBN and it fills in later.
+- **Add books** by title, author or ISBN (Open Library, then Google Books), by hand when a search comes up empty, by scanning the barcodes on a stack of books with your camera, or by pasting a list of ISBNs and titles. Offline, scanned and saved ISBNs fill in later.
 - **Bulk changes.** Select many books (or long-press one) to change their status, add them to a collection, export them, or delete them, with Undo.
 - **Reading.** Progress by page or percent, start and finish dates, ratings in paws, dated notes with page numbers, a review.
 - **To-read queue** you can drag into order.

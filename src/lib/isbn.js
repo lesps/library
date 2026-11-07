@@ -38,3 +38,9 @@ export function isbnFromQuery(q) {
 }
 
 export const formatIsbn = (isbn13) => (isbn13 ? `${isbn13.slice(0, 3)}-${isbn13.slice(3)}` : '');
+
+// A scanned barcode → its ISBN-13, if it's a book's EAN-13 (978/979 "Bookland" prefix); else null.
+export const isbnFromBarcode = (raw) => {
+  const s = String(raw ?? '').trim();
+  return /^97[89]\d{10}$/.test(s) && isIsbn13(s) ? s : null;
+};

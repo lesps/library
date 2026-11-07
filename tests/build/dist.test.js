@@ -15,9 +15,17 @@ const mainJs = () => walk(join(dist, 'assets')).find((f) => /index-[\w-]+\.js$/.
 describe('dist/', () => {
   it('exists (run `npm run build` first)', () => expect(existsSync(join(dist, 'index.html'))).toBe(true));
 
-  it('is small: under 600 KB in total (launch screens aside)', () => {
-    const bytes = walk(dist).filter((f) => !f.includes('/splash/')).reduce((n, f) => n + statSync(f).size, 0);
+  it('is small: under 600 KB in total (launch screens and the barcode decoder aside)', () => {
+    const bytes = walk(dist).filter((f) => !f.includes('/splash/') && !f.endsWith('.wasm')).reduce((n, f) => n + statSync(f).size, 0);
     expect(bytes).toBeLessThan(600 * 1024);
+  });
+
+  it('keeps the barcode decoder out of the main bundle and the offline download, served from this site', () => {
+    expect(readFileSync(mainJs(), 'utf8')).not.toMatch(/prepareZXingModule|zxing_reader[\w-]*\.wasm/); // code, not the changelog's mention
+    const wasm = walk(join(dist, 'assets')).filter((f) => f.endsWith('.wasm'));
+    expect(wasm).toHaveLength(1);
+    expect(read('sw.js')).not.toMatch(/zxing_reader[\w-]*\.wasm/);
+    expect(read('sw.js')).toMatch(/cacheName:\s*"scanner"/);
   });
 
   it('bundles the running version and its release notes', () => {

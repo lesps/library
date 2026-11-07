@@ -2,6 +2,15 @@
 
 Each release's bullets are shown in the app's "What's new" note, so they're written for the person using Catalog. Notes for developers go under a "### Developer" heading, which the app skips.
 
+## 0.2.0 — 2026-11-07
+
+- Scan barcodes: on the Add tab, tap the barcode button and point your camera at the backs of your books, one after another. One book goes straight to its search result; several are looked up together so you can add them all at once.
+- Scanning works offline too: the books are saved and their details fill in next time you're online.
+
+### Developer
+
+- `src/ui/scanner.js`, loaded on first use: the browser's BarcodeDetector where it reads EAN-13, otherwise the zxing WebAssembly decoder (`barcode-detector/ponyfill`), served from the site and cached by the service worker on first scan.
+
 ## 0.1.0 — 2026-11-07
 
 Welcome to Catalog, a home for your books, looked after by cats.

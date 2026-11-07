@@ -4,7 +4,8 @@ export function detectEnv(win = globalThis.window) {
   const nav = win?.navigator ?? {};
   const standalone = win?.matchMedia?.('(display-mode: standalone)').matches || nav.standalone === true;
   const ios = /iphone|ipad|ipod/i.test(nav.userAgent ?? '') || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
-  return { standalone: !!standalone, ios };
+  const camera = typeof nav.mediaDevices?.getUserMedia === 'function';
+  return { standalone: !!standalone, ios, camera };
 }
 
 export function showIosHelp() {

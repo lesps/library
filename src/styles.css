@@ -443,6 +443,17 @@ label { display: block; }
 .banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: color-mix(in srgb, var(--red) 14%, var(--paper)); border: 1.5px solid var(--red); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; }
 .banner p { flex: 1 1 200px; }
 
+/* ——— scanner ——— */
+.add-bar .scan { flex: none; width: 46px; height: 46px; border: 1.5px solid var(--line); background: var(--paper); color: var(--green); border-radius: 12px; }
+.scanner { padding: 12px; }
+.scan-frame { position: relative; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+.scan-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-target { position: absolute; left: 12%; right: 12%; top: 34%; bottom: 34%; border: 3px solid rgb(255 255 255 / 0.85); border-radius: 10px; box-shadow: 0 0 0 999px rgb(0 0 0 / 0.25); }
+.scan-status { margin: 10px 2px 6px !important; color: var(--ink) !important; }
+.scan-list { list-style: none; padding: 0; margin: 0; max-height: 120px; overflow-y: auto; font-size: 14px; }
+.scan-list li { display: flex; align-items: center; gap: 6px; padding: 3px 2px; color: var(--ink-2); }
+.scan-list svg { width: 16px; height: 16px; color: var(--green); }
+
 /* ——— dialogs and toasts ——— */
 dialog {
   border: 0; border-radius: 18px; padding: 18px;

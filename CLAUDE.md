@@ -3,7 +3,7 @@
 Catalog: an offline-first PWA for organizing a personal library (Goodreads import, collections, notes, progress, a to-read queue), with a cat-librarian theme. No backend; everything lives in IndexedDB on the device, with JSON backups, Goodreads CSV in and out, and on-device safety copies. Built in the same style as `lesps/banana`. `SPEC.md` describes behaviour and data formats and is kept accurate to the code.
 
 ## Stack
-Vite 8 + vanilla ES modules (no framework), `idb` (IndexedDB promises), `vite-plugin-pwa` (generateSW, `registerType: 'prompt'`), Vitest 5 + jsdom + `fake-indexeddb`, sharp (icon script only), `@fontsource/grandstander` (600/700, headings; body text is the system font).
+Vite 8 + vanilla ES modules (no framework), `idb` (IndexedDB promises), `barcode-detector` (zxing WebAssembly ponyfill, loaded only when scanning), `vite-plugin-pwa` (generateSW, `registerType: 'prompt'`), Vitest 5 + jsdom + `fake-indexeddb`, sharp (icon script only), `@fontsource/grandstander` (600/700, headings; body text is the system font).
 
 ## Commands
 ```bash
@@ -17,7 +17,7 @@ BASE_PATH=/library/ npm run build     # sub-path build (CI sets /<repo-name>/)
 ```
 
 ## Layout
-- `src/lib/` — pure logic, no DOM.
+- `src/lib/` — pure logic, no DOM. (`isbn.js` also has `isbnFromBarcode`: EAN-13 with a 978/979 prefix.)
   - `book.js`: the book record. `BOOK_FIELDS` (field → sanitizer; `deleted` is a field), `createBook(fields, { now, id })`, `updateBook(book, patch, now)` (stamps only changed fields in `fieldAt`; same object when nothing changes; never blanks a title unless `needsLookup`), `statusPatch(book, status, today, { endRank })` (dates/read count/queue rank that follow a status), `sanitizeBook`, `authorLastFirst`, `authorSortKey`, `titleSortKey`, `bookAuthorSort`, `newId`, `STATUS_LABELS`.
   - `records.js`: notes, progress, collections (`create*`, `sanitize*`, `touch(record, patch, now, sanitize)`), `currentProgress`, `progressPercent`, `findCollection` (case-insensitive, live only).
   - `merge.js`: `mergeBook` (field by field on `fieldAt`, ties keep local), `mergeData(local, incoming)` → `{ data, report: { added, updated, removed, unchanged, records } }`, `emptyData`, `KINDS`.
@@ -32,8 +32,9 @@ BASE_PATH=/library/ npm run build     # sub-path build (CI sets /<repo-name>/)
   - `cats.js`: the cat generator. `catSvg({ pose, coat, eyes, accessory, accent, flip, id, seed, ledge })` → static SVG markup (every internal id prefixed with `id`), `randomCat(rng)`, `rng(seed)` (mulberry32), `scatter(rng, { width, height, count, min, max })`, `POSES`, `COATS`, `EYES`, `ACCESSORIES`.
 - `src/db/store.js`: `openStore({ name, onVersionChange })` and `createMemoryStore(initial)`, one interface: `loadAll()` → `{ data, meta }`, `commit(changes)` (one transaction; aborts on any error, including a put that throws synchronously), `listSnapshots`, `saveSnapshot`, `readSnapshot`, `deleteSnapshots`, `close`, `kind`. `MIGRATIONS` is append-only.
 - `src/ui/` — DOM.
-  - `app.js`: `mountApp(root, { store, now, saveFile, fetch, isOnline, delay, env, version, changelog, workers, channel, catSeed, win })` → `{ actions, state(), ready, destroy() }`. Owns state, hash routing (`#/library`, `#/book/<id>`, `#/queue`, `#/add`, `#/collections`, `#/settings`, `#/import`, `#/snapshots`, `#/deleted`; `go(path)` uses pushState), whole-view rendering (focus and caret restored through `data-focus`; scroll remembered per route), the write queue (`edit()` → `applyEdits` in memory → render → `queueWrite`; failures kept and retried, banner shown), undo toasts, safety copies, the background worker (`runWorkers`: details for `needsLookup` books, then covers), and every action the views call. Storage keys are in `meta` (see SPEC).
+  - `app.js`: `mountApp(root, { store, now, saveFile, fetch, isOnline, delay, env, version, changelog, workers, channel, catSeed, openScanner, win })` → `{ actions, state(), ready, destroy() }`. Owns state, hash routing (`#/library`, `#/book/<id>`, `#/queue`, `#/add`, `#/collections`, `#/settings`, `#/import`, `#/snapshots`, `#/deleted`; `go(path)` uses pushState), whole-view rendering (focus and caret restored through `data-focus`; scroll remembered per route), the write queue (`edit()` → `applyEdits` in memory → render → `queueWrite`; failures kept and retried, banner shown), undo toasts, safety copies, the background worker (`runWorkers`: details for `needsLookup` books, then covers), and every action the views call. Storage keys are in `meta` (see SPEC).
   - `views/`: `library.js` (header, backup nudge, controls, windowed shelf, select mode and bulk bar; exports `stamp`, `paws`), `book.js` (exports `editDetails`), `queue.js` (handle drag + buttons), `add.js`, `collections.js`, `import.js`, `settings.js` (also `snapshotsView`, `deletedView`). Each is `(ctx) → node`; `ctx = { state, actions, now, today, env, signal, afterRender }`.
+  - `scanner.js` (dynamically imported by `actions.scan`; tests inject `openScanner`): `openScanner({ onDone })` opens the camera dialog and calls `onDone(isbns)`; `createDetector()` prefers the native BarcodeDetector, else the ponyfill with `prepareZXingModule` pointed at the bundled `zxing_reader.wasm?url`. `env.camera` (from `detectEnv`) decides whether the Scan button shows.
   - `shelf.js`: windowed grid/list (`measure`, `shelf({ books, layout, selecting, renderItem, signal })` → `{ el, update }`; call `update` after mount, via `afterRender`).
   - `net.js`: `createNet({ fetch, delay, now, gap })` → `get(url, { priority })`: serial, ≥ `gap` ms per host, `user` before `background`; `OfflineError` for network failures, `HttpError` for bad statuses.
   - `cat-layer.js`: `createCatLayer(document)` → `shuffle(level, seed)` (background cats + the tab-bar perch), `mascot(kind)`, `MASCOTS`.
@@ -52,6 +53,7 @@ BASE_PATH=/library/ npm run build     # sub-path build (CI sets /<repo-name>/)
 - Every change to the library goes through `edit()` in `app.js`; never write to the store from a view.
 - A store transaction never awaits anything but its own requests (it would auto-commit early). Compute first, then open the transaction.
 - Schema changes are new entries at the end of `MIGRATIONS`; bump `DB_VERSION`. Never edit a released step.
+- The barcode decoder must stay out of the main bundle and the precache (`tests/build` checks both); it's runtime-cached in the `scanner` cache.
 - Covers are fetched by Open Library cover id, never by ISBN URL (rate-limited). Keep background requests on `priority: 'background'`.
 - Changing the backup format means bumping `VERSION` in `backup.js` and keeping version 1 readable.
 - Keep README, CHANGELOG, SPEC and this file accurate to the code.

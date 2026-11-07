@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanIsbn, isIsbn10, isIsbn13, toIsbn13, isbnFromQuery, formatIsbn } from '../../src/lib/isbn.js';
+import { cleanIsbn, isIsbn10, isIsbn13, toIsbn13, isbnFromQuery, formatIsbn, isbnFromBarcode } from '../../src/lib/isbn.js';
 
 describe('cleanIsbn', () => {
   it('strips hyphens, spaces and the Goodreads ="…" wrapper', () => {
@@ -56,5 +56,19 @@ describe('formatIsbn', () => {
   it('shows ISBN-13 in readable groups of prefix and the rest', () => {
     expect(formatIsbn('9780140328721')).toBe('978-0140328721');
     expect(formatIsbn('')).toBe('');
+  });
+});
+
+describe('isbnFromBarcode', () => {
+  it('reads the EAN-13 barcode on the back of a book (978/979 prefixes)', () => {
+    expect(isbnFromBarcode('9780140328721')).toBe('9780140328721');
+    expect(isbnFromBarcode('9791032305690')).toBe('9791032305690');
+  });
+
+  it('ignores price add-ons, product barcodes and misreads', () => {
+    expect(isbnFromBarcode('51299')).toBe(null);
+    expect(isbnFromBarcode('0012345678905')).toBe(null);
+    expect(isbnFromBarcode('9780140328722')).toBe(null);
+    expect(isbnFromBarcode('')).toBe(null);
   });
 });

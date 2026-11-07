@@ -44,6 +44,12 @@ export default defineConfig({
             expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 365, purgeOnQuotaError: true },
             cacheableResponse: { statuses: [0, 200] },
           },
+        }, {
+          // The barcode decoder (~1 MB) isn't in the offline download; it's cached the first time
+          // someone scans, so scanning works offline from then on.
+          urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.endsWith('.wasm'),
+          handler: 'CacheFirst',
+          options: { cacheName: 'scanner', expiration: { maxEntries: 4 } },
         }],
       },
     }),
