@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createBook, updateBook, statusPatch, sanitizeBook, BOOK_FIELDS, authorSortKey, titleSortKey } from '../../src/lib/book.js';
+import { createBook, updateBook, sanitizeBook, BOOK_FIELDS, authorSortKey, titleSortKey } from '../../src/lib/book.js';
 
 const T0 = 1_700_000_000_000;
 
@@ -46,30 +46,10 @@ describe('updateBook', () => {
   });
 });
 
-describe('statusPatch', () => {
-  const today = '2026-11-07';
-  const base = (status, extra = {}) => createBook({ title: 'X', status, ...extra }, { now: T0, id: 'b' });
-
-  it('starting a book stamps the start date', () => {
-    expect(statusPatch(base('want'), 'reading', today)).toEqual({ status: 'reading', started: today });
-  });
-
-  it('finishing stamps the finish date and counts the read', () => {
-    expect(statusPatch(base('reading', { started: '2026-10-01' }), 'read', today)).toEqual({ status: 'read', finished: today, readCount: 1 });
-    expect(statusPatch(base('want', { readCount: 2 }), 'read', today)).toEqual({ status: 'read', finished: today, readCount: 3 });
-  });
-
-  it('rereading restarts the clock but keeps the finish history', () => {
-    expect(statusPatch(base('read', { finished: '2025-01-01', readCount: 1 }), 'reading', today)).toEqual({ status: 'reading', started: today });
-  });
-
-  it('joining the to-read list puts the book at the end of the queue', () => {
-    expect(statusPatch(base('none'), 'want', today, { endRank: 'k' })).toEqual({ status: 'want', queueRank: 'k' });
-  });
-
-  it('is empty when the status is unchanged or unknown', () => {
-    expect(statusPatch(base('read'), 'read', today)).toEqual({});
-    expect(statusPatch(base('read'), 'nope', today)).toEqual({});
+describe('read dates', () => {
+  it('are not book fields: they live in reads, and old ones are left for the conversion', () => {
+    for (const f of ['started', 'finished', 'readCount']) expect(BOOK_FIELDS[f], f).toBeUndefined();
+    expect(createBook({ title: 'X', finished: '2025-01-01' }, { now: T0, id: 'b' }).finished).toBeUndefined();
   });
 });
 

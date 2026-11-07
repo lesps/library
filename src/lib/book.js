@@ -1,7 +1,8 @@
 // A book is one record with a timestamp per field (`fieldAt`), so merging two copies keeps the newer
 // value of each field instead of the newer whole record. All operations return new objects.
+// When it was read lives in its reads (reads.js); status changes go through statusChange there.
+// Books saved before 0.4 also carry started, finished and readCount, which legacyReads converts.
 import { isIsbn10, isIsbn13, toIsbn13, cleanIsbn } from './isbn.js';
-import { isYmd } from './dates.js';
 
 export const STATUSES = ['want', 'reading', 'read', 'none'];
 export const STATUS_LABELS = { want: 'Want to read', reading: 'Reading', read: 'Read', none: 'No status' };
@@ -33,7 +34,6 @@ const list = (maxItems, maxLen) => (v) => {
   return out;
 };
 const bool = (v) => v === true;
-const day = (v) => (isYmd(v) ? v : '');
 const rank = (v) => (typeof v === 'string' && /^[0-9a-z]{0,80}$/.test(v) && !v.endsWith('0') ? v : '');
 const ts = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
 const https = (v) => (typeof v === 'string' && /^https:\/\/[^\s"'<>]{1,500}$/.test(v) ? v : '');
@@ -62,9 +62,6 @@ export const BOOK_FIELDS = {
   review: longText,
   collectionIds: list(500, 100),
   queueRank: rank,
-  started: day,
-  finished: day,
-  readCount: clampInt(0, 1000),
   owned: bool,
   needsLookup: bool, // saved by ISBN while offline; details fill in when back online
   deleted: bool,
@@ -108,17 +105,6 @@ export function updateBook(book, patch, now) {
   if (!next) return book;
   next.updatedAt = now;
   return next;
-}
-
-// The fields that change when a book moves to `status` (dates and read count follow the status).
-export function statusPatch(book, status, today, { endRank = '' } = {}) {
-  if (!STATUSES.includes(status) || status === book.status) return {};
-  switch (status) {
-    case 'reading': return { status, started: today };
-    case 'read': return { status, finished: today, readCount: (book.readCount ?? 0) + 1 };
-    case 'want': return endRank ? { status, queueRank: endRank } : { status };
-    default: return { status };
-  }
 }
 
 // Validates a stored or imported record; missing stamps count as "never edited" (0).

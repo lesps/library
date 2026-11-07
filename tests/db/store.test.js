@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'vitest';
+import { openDB } from 'idb';
 import { openStore, createMemoryStore, DB_VERSION } from '../../src/db/store.js';
 import { createBook } from '../../src/lib/book.js';
 import { createNote, createCollection } from '../../src/lib/records.js';
@@ -63,7 +64,7 @@ describe.each(kinds)('%s store', (kind, make) => {
     const data = { books: [createBook({ title: 'Dune' }, { now: T, id: 'b1' })], notes: [], progress: [], collections: [], settings: { cats: 'lively', updatedAt: 0 } };
     const id = await s.saveSnapshot({ at: T, reason: 'import', version: T, data });
     const list = await s.listSnapshots();
-    expect(list).toEqual([{ id, at: T, reason: 'import', version: T, counts: { books: 1, read: 0, notes: 0, collections: 0 } }]);
+    expect(list).toEqual([{ id, at: T, reason: 'import', version: T, counts: { books: 1, read: 0, notes: 0, collections: 0, reads: 0 } }]);
     expect((await s.readSnapshot(id)).books[0].title).toBe('Dune');
     await s.deleteSnapshots([id]);
     expect(await s.listSnapshots()).toEqual([]);
@@ -89,5 +90,31 @@ describe('indexeddb store', () => {
     expect((await b.loadAll()).data.books[0].title).toBe('Dune');
   });
 
-  it('is at the current schema version', () => expect(DB_VERSION).toBeGreaterThanOrEqual(1));
+  it('is at the current schema version', () => expect(DB_VERSION).toBe(2));
+
+  it('upgrades a 0.3 database: read dates on books become reads, older safety copies still restore', async () => {
+    const name = `v1-${dbn++}`;
+    const legacy = { ...createBook({ title: 'Old' }, { now: T, id: 'old' }), status: 'reading', started: '2026-11-01', finished: '2024-02-02', readCount: 1 };
+    const v1 = await openDB(name, 1, {
+      upgrade(db) {
+        for (const s of ['books', 'notes', 'progress', 'collections']) db.createObjectStore(s, { keyPath: 'id' });
+        db.createObjectStore('meta');
+        db.createObjectStore('snapshots', { keyPath: 'id' });
+        db.createObjectStore('snapshotData', { keyPath: 'id' });
+      },
+    });
+    await v1.put('books', legacy);
+    await v1.put('snapshots', { id: 's', at: T, reason: 'daily', version: T, counts: {} });
+    await v1.put('snapshotData', { id: 's', json: JSON.stringify({ books: [legacy], notes: [], progress: [], collections: [], settings: {} }) });
+    v1.close();
+
+    const s = await openStore({ name });
+    const { data } = await s.loadAll();
+    expect(data.reads.map((r) => [r.id, r.started, r.finished, r.done]).sort()).toEqual([
+      ['old~d2024-02-02', '', '2024-02-02', true],
+      ['old~o', '2026-11-01', '', false],
+    ]);
+    expect(data.books[0]).toMatchObject({ id: 'old', status: 'reading' });
+    expect((await s.readSnapshot('s')).reads.map((r) => r.id).sort()).toEqual(['old~d2024-02-02', 'old~o']);
+  });
 });

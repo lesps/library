@@ -20,7 +20,8 @@ describe('adding books', () => {
     t.change('select.add-status', 'reading');
     t.$$('.results .result')[0].querySelector('.add-result').click();
     const added = t.live()[0];
-    expect(added).toMatchObject({ title: 'Dune', authors: ['Frank Herbert'], coverId: 11, status: 'reading', started: '2026-11-07', source: 'openlibrary' });
+    expect(added).toMatchObject({ title: 'Dune', authors: ['Frank Herbert'], coverId: 11, status: 'reading', source: 'openlibrary' });
+    expect(t.app.state().data.reads).toEqual([expect.objectContaining({ bookId: added.id, started: '2026-11-07', done: false })]);
     expect(t.$$('.results .result')[0].classList.contains('in-library')).toBe(true);
   });
 

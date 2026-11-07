@@ -9,6 +9,12 @@ describe('notes', () => {
       .toEqual({ id: 'n1', bookId: 'b', text: 'Great line.', page: 42, at: T, updatedAt: T });
   });
 
+  it('can be about one read of the book', () => {
+    expect(createNote({ bookId: 'b', text: 'Noticed the bees this time.', readId: 'r2' }, { now: T, id: 'n' })).toMatchObject({ readId: 'r2' });
+    expect(createNote({ bookId: 'b', text: 'x' }, { now: T, id: 'n' })).not.toHaveProperty('readId');
+    expect(sanitizeNote({ id: 'n', bookId: 'b', text: 'x', readId: 42, at: T, updatedAt: T })).not.toHaveProperty('readId');
+  });
+
   it('rejects empty notes and notes without a book', () => {
     expect(sanitizeNote({ id: 'n', bookId: 'b', text: '   ', at: T, updatedAt: T })).toBe(null);
     expect(sanitizeNote({ id: 'n', text: 'x', at: T, updatedAt: T })).toBe(null);

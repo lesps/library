@@ -2,6 +2,7 @@
 import { h } from '../dom.js';
 import { coverEl, displayTitle } from '../cover.js';
 import { currentProgress, progressPercent } from '../../lib/records.js';
+import { progressFor } from './book.js';
 import { goalCard } from './goal.js';
 import { queueSection } from './queue.js';
 
@@ -11,7 +12,7 @@ function nowReading({ state, actions }) {
   return h('section', { class: 'now-reading' },
     h('h2', {}, 'Reading now'),
     h('div', { class: 'nr-row' }, reading.map((b) => {
-      const pct = progressPercent(currentProgress(state.data.progress.filter((p) => p.bookId === b.id)), b.pages);
+      const pct = progressPercent(currentProgress(progressFor(state.data, b.id)), b.pages);
       return h('button', { type: 'button', class: 'nr-book', onclick: () => actions.go(`/book/${b.id}`) },
         coverEl(b, { size: 'M', cls: 'nr-cover' }),
         h('span', { class: 'nr-title' }, displayTitle(b)),

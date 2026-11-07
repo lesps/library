@@ -1,12 +1,19 @@
 import { mountApp } from '../../src/ui/app.js';
 import { createMemoryStore } from '../../src/db/store.js';
 import { createBook } from '../../src/lib/book.js';
+import { legacyReads } from '../../src/lib/reads.js';
 
 export const at = (y, m, d, hh = 12, mm = 0) => new Date(y, m - 1, d, hh, mm).getTime();
 export const T0 = at(2026, 11, 7, 12);
 
 let n = 0;
-export const book = (fields, now = T0) => createBook(fields, { now: now + n, id: `b${++n}` });
+// Books may be described the 0.3 way (started, finished, readCount); mount() turns those into reads
+// the same way the database upgrade does.
+export const book = (fields, now = T0) => {
+  const b = createBook(fields, { now: now + n, id: `b${++n}` });
+  for (const k of ['started', 'finished', 'readCount']) if (fields[k] != null) b[k] = fields[k];
+  return b;
+};
 
 // A fake fetch: routes is [matcher(url) → json | Error | { status }]; records every URL asked for.
 export function fakeFetch(routes = []) {
@@ -40,7 +47,8 @@ export async function mount({ time = T0, books = [], data = {}, meta = {}, onlin
   const saveFile = async (name, text) => { saved.push({ name, text }); return true; };
   let isOnline = online;
   const net = { online: () => isOnline, set: (v) => { isOnline = v; window.dispatchEvent(new Event(v ? 'online' : 'offline')); } };
-  const s = store ?? createMemoryStore({ books, ...data, meta });
+  const reads = data.reads ?? books.flatMap(legacyReads);
+  const s = store ?? createMemoryStore({ books, ...data, reads, meta });
   const app = (current = mountApp(root, {
     store: s, now: clock.now, saveFile, fetch, isOnline: net.online, delay: async () => {}, workers: false, channel: null, catSeed: () => 7, ...opts,
   }));

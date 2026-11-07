@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { createBook } from '../../src/lib/book.js';
 import { createNote } from '../../src/lib/records.js';
+import { createRead } from '../../src/lib/reads.js';
 import { normalize, queryBooks, statusCounts, toReadQueue, queueEndRank, findDuplicate, SORTS } from '../../src/lib/library.js';
 
 const T = 1_700_000_000_000;
 let n = 0;
 const book = (f) => createBook(f, { now: T + n++, id: `b${n}` });
 const books = [
-  book({ title: 'The Left Hand of Darkness', authors: ['Ursula K. Le Guin'], status: 'read', rating: 5, finished: '2025-02-01', collectionIds: ['c1'] }),
+  book({ title: 'The Left Hand of Darkness', authors: ['Ursula K. Le Guin'], status: 'read', rating: 5, collectionIds: ['c1'] }),
   book({ title: 'Dune', authors: ['Frank Herbert'], status: 'want', queueRank: 'm', collectionIds: ['c1'] }),
   book({ title: 'Emma', authors: ['Jane Austen'], status: 'want', queueRank: 'c' }),
   book({ title: 'Cien años de soledad', authors: ['Gabriel García Márquez'], status: 'reading' }),
@@ -46,6 +47,17 @@ describe('queryBooks', () => {
     expect(titles(queryBooks(books, { sort: 'rating' }))[0]).toBe('The Left Hand of Darkness');
     expect(titles(queryBooks(books, { sort: 'added' }))[0]).toBe('Persuasion');
     expect(Object.keys(SORTS)).toEqual(expect.arrayContaining(['added', 'title', 'author', 'rating', 'finished', 'updated']));
+  });
+});
+
+describe('sorting by date read', () => {
+  it('uses each book’s latest finished read; unread books last', () => {
+    const reads = [
+      createRead({ bookId: books[0].id, finished: '2025-02-01' }, { now: T, id: 'r1' }),
+      createRead({ bookId: books[2].id, finished: '2019-01-01' }, { now: T, id: 'r2' }),
+      createRead({ bookId: books[2].id, finished: '2026-06-01' }, { now: T, id: 'r3' }),
+    ];
+    expect(titles(queryBooks(books, { sort: 'finished', reads })).slice(0, 2)).toEqual(['Emma', 'The Left Hand of Darkness']);
   });
 });
 

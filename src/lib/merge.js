@@ -1,11 +1,11 @@
 // Merging two copies of the library (a backup file into this device, or a snapshot restore).
-// Books merge field by field on `fieldAt`; notes, progress and collections merge whole on `updatedAt`.
+// Books merge field by field on `fieldAt`; notes, progress, collections and reads merge whole on `updatedAt`.
 // Ties keep the local copy, so merging the same data twice changes nothing.
 import { BOOK_FIELDS } from './book.js';
 import { DEFAULT_SETTINGS } from './settings.js';
 
-export const KINDS = ['notes', 'progress', 'collections'];
-export const emptyData = () => ({ books: [], notes: [], progress: [], collections: [], settings: { ...DEFAULT_SETTINGS } });
+export const KINDS = ['notes', 'progress', 'collections', 'reads'];
+export const emptyData = () => ({ books: [], notes: [], progress: [], collections: [], reads: [], settings: { ...DEFAULT_SETTINGS } });
 
 const same = (a, b) => (Array.isArray(a) ? Array.isArray(b) && a.length === b.length && a.every((x, i) => x === b[i]) : a === b);
 

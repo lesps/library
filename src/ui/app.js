@@ -15,7 +15,8 @@ import { openStore, createMemoryStore } from '../db/store.js';
 import { emptyData, mergeData, KINDS } from '../lib/merge.js';
 import { applyEdits, restoreEdits, snapshotsToKeep, snapshotDue, dataVersion } from '../lib/snapshots.js';
 import { captureBefore, undoEdits } from '../lib/undo.js';
-import { createBook, updateBook, statusPatch, STATUS_LABELS } from '../lib/book.js';
+import { createBook, updateBook, STATUS_LABELS } from '../lib/book.js';
+import { statusChange, createRead, sanitizeRead } from '../lib/reads.js';
 import { createNote, createProgress, createCollection, sanitizeNote, touch, findCollection } from '../lib/records.js';
 import { toReadQueue, queueEndRank, findDuplicate } from '../lib/library.js';
 import { rankBetween, spreadRanks } from '../lib/rank.js';
@@ -364,18 +365,20 @@ export function mountApp(root, opts = {}) {
   const startWorkers = () => { if (workersOn) runWorkers(); };
 
   // ——— actions ———
+  // Status changes carry their reads: starting opens one, finishing closes it (see reads.js).
   function setStatus(ids, status, { message } = {}) {
     let end = queueEndRank(state.data.books);
     const books = [];
+    const reads = [];
     for (const id of ids) {
       const b = bookById(id);
       if (!b || b.deleted) continue;
-      const patch = statusPatch(b, status, today(), { endRank: status === 'want' && !b.queueRank ? end : '' });
-      if (patch.queueRank) end = rankBetween(end, '');
-      const next = updateBook(b, patch, now());
-      if (next !== b) books.push(next);
+      const change = statusChange(b, state.data.reads, status, today(), now(), { endRank: status === 'want' && !b.queueRank ? end : '' });
+      if (change.book.queueRank === end && b.queueRank !== end) end = rankBetween(end, '');
+      if (change.book !== b) books.push(change.book);
+      reads.push(...change.reads);
     }
-    if (books.length) edit({ books }, { message: message ?? (books.length > 1 ? `Moved ${plural(books.length, 'book')} to ${STATUS_LABELS[status]}.` : null) });
+    if (books.length) edit({ books, reads }, { message: message ?? (books.length > 1 ? `Moved ${plural(books.length, 'book')} to ${STATUS_LABELS[status]}.` : null) });
     return books.length;
   }
 
@@ -396,15 +399,25 @@ export function mountApp(root, opts = {}) {
 
   function addBooks(candidates, status, { message = true } = {}) {
     let end = queueEndRank(state.data.books);
-    const books = candidates.map((c) => {
-      const extra = statusPatch({ status: 'none', readCount: 0 }, status, today());
-      if (status === 'want') { extra.queueRank = end; end = rankBetween(end, ''); }
-      return createBook({ ...c, ...extra, status }, { now: now() });
-    });
-    edit({ books }, { message: message ? (books.length === 1 ? `Added ${books[0].title || 'the book'}.` : `Added ${plural(books.length, 'book')}.`) : null });
+    const books = [];
+    const reads = [];
+    for (const c of candidates) {
+      const fresh = createBook({ ...c, status: 'none' }, { now: now() });
+      const change = statusChange(fresh, [], status, today(), now(), { endRank: end });
+      if (status === 'want') end = rankBetween(end, '');
+      books.push(change.book);
+      reads.push(...change.reads);
+    }
+    edit({ books, reads }, { message: message ? (books.length === 1 ? `Added ${books[0].title || 'the book'}.` : `Added ${plural(books.length, 'book')}.`) : null });
     startWorkers();
     return books;
   }
+
+  // A read's dates; returns false (and says why) when the start is after the finish.
+  const datesOk = ({ started, finished }) => {
+    if (started && finished && started > finished) { toast('The start date is after the finish date.'); return false; }
+    return true;
+  };
 
   async function readFile(file) {
     if (file.text) return file.text();
@@ -549,8 +562,8 @@ export function mountApp(root, opts = {}) {
       const p = createProgress({ bookId: id, page, percent }, { now: now() });
       if (p) edit({ progress: [p] }, { undoable: false });
     },
-    addNote(id, text, page) {
-      const n = createNote({ bookId: id, text, page }, { now: now() });
+    addNote(id, text, page, readId = '') {
+      const n = createNote({ bookId: id, text, page, readId: readId || undefined }, { now: now() });
       if (n) edit({ notes: [n] }, { undoable: false });
       return !!n;
     },
@@ -562,6 +575,22 @@ export function mountApp(root, opts = {}) {
     deleteNote(noteId) {
       const n = state.data.notes.find((x) => x.id === noteId);
       edit({ notes: [{ ...n, deleted: true, updatedAt: now() }] }, { message: 'Note deleted.' });
+    },
+    addRead(bookId, { started = '', finished = '' }) {
+      if (!datesOk({ started, finished })) return false;
+      edit({ reads: [createRead({ bookId, started, finished, done: true }, { now: now() })] }, { undoable: false });
+      return true;
+    },
+    editRead(id, dates) {
+      const r = state.data.reads.find((x) => x.id === id);
+      const next = sanitizeRead({ ...r, ...dates, done: r.done || !!dates.finished, updatedAt: now() });
+      if (!next || !datesOk(next)) return false;
+      edit({ reads: [next] }, { undoable: false });
+      return true;
+    },
+    deleteRead(id) {
+      const r = state.data.reads.find((x) => x.id === id);
+      edit({ reads: [{ ...r, deleted: true, updatedAt: now() }] }, { message: 'Read deleted.' });
     },
     deleteBook(id) {
       const b = bookById(id);

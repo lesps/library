@@ -14,7 +14,7 @@ const fmt = (n) => n.toLocaleString('en-US');
 const SHOW = 10; // books listed before "Show all"
 const books = (n) => (n ? plural(n, 'book') : 'no books');
 
-const kpi = (label, value) => h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, label), h('span', { class: 'kpi-value' }, value));
+const kpi = (label, value, sub) => h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, label), h('span', { class: 'kpi-value' }, value), sub ? h('span', { class: 'kpi-sub' }, sub) : null);
 
 // sub replaces the author line (the extremes show page counts there).
 function bookLine(actions, b, extra, sub = b.authors.join(', ')) {
@@ -31,12 +31,12 @@ export function statsView(ctx) {
   const { state, actions, now } = ctx;
   const current = new Date(now()).getFullYear();
   const goals = state.data.settings.goals ?? {};
-  const history = yearsSummary(state.data.books, current);
+  const history = yearsSummary(state.data.books, state.data.reads, current);
   const year = state.statsYear ?? current;
-  const s = yearStats(state.data.books, year);
+  const s = yearStats(state.data.books, state.data.reads, year);
   const chips = history.filter((y) => y.count || y.year === current || goals[y.year] || y.year === year).map((y) => y.year).reverse();
   const pick = (y) => actions.setStatsYear(y);
-  const undated = undatedReads(state.data.books);
+  const undated = undatedReads(state.data.books, state.data.reads);
 
   return h('section', { class: 'stats-view' },
     h('div', { class: 'detail-top' }, h('button', { type: 'button', class: 'icon-btn back', 'aria-label': 'Back', html: ICONS.back, onclick: () => actions.go('/reading') })),
@@ -47,7 +47,7 @@ export function statsView(ctx) {
     goalCard(ctx, year),
 
     h('div', { class: 'kpis' },
-      kpi('Books', fmt(s.count)),
+      kpi('Books', fmt(s.count), s.rereads ? plural(s.rereads, 'reread') : null),
       kpi('Pages', fmt(s.pages)),
       kpi('Average rating', s.avgRating == null ? '–' : String(s.avgRating)),
       kpi('Average length', s.avgPages == null ? '–' : `${fmt(s.avgPages)} pages`)),
@@ -84,16 +84,16 @@ export function statsView(ctx) {
 
     h('section', { class: 'card' },
       h('h2', {}, `Finished in ${year}`),
-      s.count ? h('ol', { class: 'finished-list' }, s.books.slice(0, state.statsShowAll ? Infinity : SHOW).map((b) => bookLine(actions, b,
-        h('span', { class: 'fl-meta' }, h('span', { class: 'fl-date' }, formatDate(b.finished, now())), paws(b.rating, 'small')))))
+      s.count ? h('ol', { class: 'finished-list' }, s.entries.slice(0, state.statsShowAll ? Infinity : SHOW).map(({ book: b, read, reread }) => bookLine(actions, b,
+        h('span', { class: 'fl-meta' }, h('span', { class: 'fl-date' }, formatDate(read.finished, now())), reread ? h('span', { class: 'reread' }, 'Reread') : null, paws(b.rating, 'small')))))
         : h('p', { class: 'muted' }, year > current ? 'This year hasn’t started.' : 'No books with a finish date in this year.'),
       s.count > SHOW && !state.statsShowAll ? h('button', { type: 'button', class: 'btn small show-all', onclick: () => actions.showAllFinished() }, `Show all ${s.count}`) : null,
       s.unknownPages ? h('p', { class: 'muted small' }, `${plural(s.unknownPages, 'book')} here ${s.unknownPages === 1 ? 'has' : 'have'} no page count, so ${s.unknownPages === 1 ? 'it isn’t' : 'they aren’t'} in the page total. “Fill in from the web” on the book’s page can find it.`) : null),
 
 
     undated.length ? h('details', { class: 'undated card' },
-      h('summary', {}, `${plural(undated.length, 'read book')} ${undated.length === 1 ? 'has' : 'have'} no finish date, so ${undated.length === 1 ? 'it isn’t' : 'they aren’t'} counted in any year`),
-      h('p', { class: 'muted small' }, 'Open one and set its Finished date to count it.'),
+      h('summary', {}, `${plural(undated.length, 'book')} ${undated.length === 1 ? 'has' : 'have'} a read with no finish date, so ${undated.length === 1 ? 'that read isn’t' : 'those reads aren’t'} counted in any year`),
+      h('p', { class: 'muted small' }, 'Open one and set the read’s finish date (or delete a read that didn’t happen) to count it.'),
       h('ul', { class: 'finished-mini' }, undated.slice(0, 200).map((b) => h('li', {},
         h('button', { type: 'button', class: 'fl-book ud-book', onclick: () => actions.go(`/book/${b.id}`) },
           coverEl(b, { size: 'S', cls: 'thumb' }),

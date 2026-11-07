@@ -4,7 +4,7 @@ A personal library: the organizing half of Goodreads, without the social half. I
 
 ## Data
 
-All records live in IndexedDB (database `catalog`, schema version 1). Memory holds the working copy: the app reads everything once at launch, and from then on every user action is applied in memory, rendered, and written as **one transaction** containing only the changed records.
+All records live in IndexedDB (database `catalog`, schema version 2). Memory holds the working copy: the app reads everything once at launch, and from then on every user action is applied in memory, rendered, and written as **one transaction** containing only the changed records.
 
 ### Book
 
@@ -14,14 +14,15 @@ All records live in IndexedDB (database `catalog`, schema version 1). Memory hol
   "isbn10": "", "isbn13": "9780441013593", "publisher": "Ace", "year": 1990, "originalYear": 1965,
   "pages": 412, "binding": "Paperback", "coverId": 12345, "coverUrl": "", "coverCheckedAt": 0, "olWork": "/works/OL893415W",
   "goodreadsId": "234225", "status": "read", "rating": 5, "review": "", "collectionIds": ["uuid"],
-  "queueRank": "", "started": "2025-01-02", "finished": "2025-02-01", "readCount": 1, "owned": true,
+  "queueRank": "", "owned": true,
   "needsLookup": false, "deleted": false,
   "source": "goodreads", "addedAt": 1762500000000, "fieldAt": { "title": 1762500000000, "…": 0 }, "updatedAt": 1762500000000
 }
 ```
 
 - `status`: `want` (want to read), `reading`, `read`, or `none`. Exactly one per book.
-- Status changes carry their dates: entering `reading` stamps `started` with today; entering `read` stamps `finished` and adds one to `readCount`; entering `want` puts the book at the end of the queue.
+- When a book was read lives in its reads (below), not on the book. Status changes carry their reads: entering `reading` opens a read started today (unless one is open, so reading a read book again is a reread); entering `read` closes the open read with today's date, or adds a read finished today; entering `want` or `none` deletes an unfinished read (finished reads are kept); entering `want` also puts the book at the end of the queue.
+- Books saved before 0.4 also carry `started`, `finished` and `readCount`. They're no longer book fields: the database upgrade and the backup reader turn them into reads (see Reads), and they're dropped the next time the book is saved.
 - `collectionIds`: any number of collections.
 - `queueRank`: the book's place in the to-read queue (see Ordering). Only meaningful while `status` is `want`.
 - `rating`: 0 (unrated) to 5, shown as paws.
@@ -31,15 +32,27 @@ All records live in IndexedDB (database `catalog`, schema version 1). Memory hol
 - `updatedAt`: the latest of `fieldAt`.
 - Every field is sanitized on create, edit, load and import (bad ISBNs dropped, numbers range-checked, text trimmed and capped, unknown fields ignored). A record without an id, or without a title unless it's awaiting look-up, is skipped.
 
+### Reads
+
+```json
+{ "id": "uuid", "bookId": "uuid", "started": "2026-03-02", "finished": "2026-03-20", "done": true, "at": 1762500000000, "updatedAt": 1762500000000 }
+```
+
+- One record per time through a book. `done` with a `finished` date is a dated read; `done` without one is a read whose date isn't known; not `done` is the read in progress (at most one per book). Dates are optional and a start can't be after the finish.
+- Reads are records of their own, merged whole on `updatedAt`, so reads logged on two devices both survive a merge.
+- A book's reads, in order: the one in progress, then by finish date newest first, then undated. "Read N times" counts finished reads. A finished read is a **reread** when the book has an earlier finished read (an undated read counts as earlier).
+- **Progress belongs to the read in progress**: only progress logged since that read began counts, so a reread starts from zero.
+- **Reads converted from older data** (pre-0.4 books, Goodreads imports) get ids built from the book's id: `<bookId>~d<finish date>` for a dated read, `<bookId>~u1`, `~u2`… for reads of unknown date, `<bookId>~o` for one in progress. Two devices converting the same data make the same records, so merging their backups doesn't double anything, and a converted read that was deleted isn't made again. For a pre-0.4 book: a finish date becomes a dated read (with the start date, unless the book is being read again, in which case the start belongs to the open read); `readCount` (at least 1 for a read book) is made up with undated reads; a book being read gets an open read.
+
 ### Notes, progress, collections
 
 ```json
-{ "id": "uuid", "bookId": "uuid", "text": "Fear is the mind-killer.", "page": 8, "at": 1762500000000, "updatedAt": 1762500000000 }
+{ "id": "uuid", "bookId": "uuid", "readId": "uuid", "text": "Fear is the mind-killer.", "page": 8, "at": 1762500000000, "updatedAt": 1762500000000 }
 { "id": "uuid", "bookId": "uuid", "page": 120, "percent": null, "at": 1762500000000, "updatedAt": 1762500000000 }
 { "id": "uuid", "name": "Sci-fi", "rank": "i", "updatedAt": 1762500000000 }
 ```
 
-- A note is non-empty text with an optional page.
+- A note is non-empty text with an optional page. `readId` (optional) says which read it's about; without one, or if that read was deleted, it's about the book in general.
 - A progress record is a page or a percent (0–100), never both. The book's current position is its latest live record. With a page count it shows as a percentage; at 100% a "Mark as read" button appears.
 - Collection names are unique, ignoring case.
 - Deleting a collection removes it from its books; the books stay.
@@ -63,12 +76,12 @@ Stored in the `meta` object store:
 
 | Store | Key | Holds |
 | --- | --- | --- |
-| `books`, `notes`, `progress`, `collections` | `id` | the records above |
+| `books`, `notes`, `progress`, `collections`, `reads` | `id` | the records above (`reads` since version 2) |
 | `meta` | name | settings and device values |
 | `snapshots` | `id` | `{ id, at, reason, version, counts }` |
 | `snapshotData` | `id` | `{ id, gz }` (gzipped JSON) or `{ id, json }` where compression isn't available |
 
-- Schema changes are appended as migration steps; released steps are never edited.
+- Schema changes are appended as migration steps; released steps are never edited. Version 2 (0.4) adds the `reads` store and, inside the upgrade, turns every book's old read dates into reads (see Reads). Safety copies taken before the upgrade are converted the same way when read, so they still restore correctly.
 - When another tab opens a newer version, this tab closes its connection and shows "Catalog was updated in another tab. Reload."
 - If IndexedDB can't be opened (some private-browsing modes), the app runs from memory and Settings warns that nothing will be kept.
 - If a write fails (for example, the device is out of space), a banner says changes are not being saved and offers Try again and Export backup. The failed changes are kept in memory and retried every 15 seconds and when the app goes to the background.
@@ -89,13 +102,13 @@ Safety copies don't survive deleting the app or losing the device. Backup files 
 ## Backup files
 
 ```json
-{ "format": "catalog-library", "version": 1, "exported": "ISO time", "settings": {}, "books": [], "notes": [], "progress": [], "collections": [] }
+{ "format": "catalog-library", "version": 2, "exported": "ISO time", "settings": {}, "books": [], "notes": [], "progress": [], "collections": [], "reads": [] }
 ```
 
 - Everything, deleted markers included. Saved through the share sheet where available (iOS: Save to Files), otherwise downloaded. Named `catalog-YYYY-MM-DD.json`.
-- **Merging** a backup: books merge field by field (the newer `fieldAt` wins; a tie keeps this device's value); notes, progress and collections merge whole on `updatedAt`; settings on their own `updatedAt`. Before merging, a dialog reports the new, updated and deleted books, and a safety copy is taken.
+- **Merging** a backup: books merge field by field (the newer `fieldAt` wins; a tie keeps this device's value); notes, progress, collections and reads merge whole on `updatedAt`; settings on their own `updatedAt`. Before merging, a dialog reports the new, updated and deleted books, and a safety copy is taken.
 - Unreadable records are skipped and counted. A repeated id keeps the newest values.
-- Changing this format means bumping `VERSION` in `src/lib/backup.js` and keeping version 1 readable.
+- Version 2 (0.4) added `reads`. Version 1 files (no `reads`, read dates on books) still read: their books' read dates become reads as described under Reads. Changing this format means bumping `VERSION` in `src/lib/backup.js` and keeping earlier versions readable.
 - **Reminder**: the library shows "Save a backup file" when there are books and changes since the last export, and the last export was never or at least 7 days ago. Later hides it for 3 days.
 
 ## Goodreads
@@ -110,23 +123,24 @@ From Goodreads: My Books → Import and export → Export Library (desktop site 
 | Title, Author, Additional Authors, Author l-f | `title`, `authors`, `authorSort` |
 | ISBN, ISBN13 (written as `="…"`) | `isbn10`, `isbn13` (empty `=""` ignored) |
 | My Rating, Publisher, Binding, Number of Pages, Year Published, Original Publication Year | `rating`, `publisher`, `binding`, `pages`, `year`, `originalYear` |
-| Date Read, Date Added | `finished`, `addedAt` (noon local time on that day) |
+| Date Read, Read Count | reads: the Date Read is the latest finished read, and Read Count (at least 1 for read books) is made up with reads of unknown date; currently-reading books get a read in progress. Goodreads keeps every read's dates on its site but exports only these two. |
+| Date Added | `addedAt` (noon local time on that day) |
 | Exclusive Shelf | `status`: read → read, currently-reading → reading, to-read → want; a custom exclusive shelf → `none` plus a collection of that name |
 | Bookshelves | collections (shelf slugs become names: `did-not-finish` → "Did not finish", `sci-fi` → "Sci-fi") |
 | Bookshelves with positions | the to-read position, which orders the queue |
 | My Review | `review` (HTML line breaks and entities turned into plain text) |
 | Private Notes | a note |
-| Read Count, Owned Copies | `readCount` (at least 1 for read books), `owned` |
+| Owned Copies | `owned` |
 
 - Rows without a title are skipped and counted.
 - Matching, in order: Goodreads id, then ISBN-13, then title (ignoring leading articles) plus first author. Collections are reused by name, ignoring case.
-- Matched books (when "Update books I already have" is on, the default) take Goodreads' status, read count, owned flag and id; its rating, finish date and review when Goodreads has one; and fill in ISBN, pages, publisher, years, format and author sort only where Catalog has none. Collections are added, never removed. A private note is added unless the book already has a note with the same text.
+- Matched books (when "Update books I already have" is on, the default) take Goodreads' status, owned flag and id; its rating and review when Goodreads has one; any reads they're missing (a Date Read with no read finished that day, or fewer finished reads than Read Count), so a reread logged on Goodreads since the last export arrives as a new read; and fill in ISBN, pages, publisher, years, format and author sort only where Catalog has none. Collections are added, never removed. A private note is added unless the book already has a note with the same text.
 - New to-read books join the end of the queue in their Goodreads to-read order.
 - The preview shows new books, updated books, unchanged books, new collections and notes. Import takes a safety copy first and writes everything in one transaction. Importing the same file twice changes nothing.
 
 ### Export
 
-Settings → Export Goodreads CSV writes Goodreads' exact columns (`="…"` ISBNs, `yyyy/mm/dd` dates, shelves from collection names, `to-read (#n)` positions from the queue, notes joined into Private Notes), so Goodreads, StoryGraph and others can import it, and Catalog can re-import it. A selection can be exported the same way.
+Settings → Export Goodreads CSV writes Goodreads' exact columns (`="…"` ISBNs, `yyyy/mm/dd` dates, Date Read from the latest finished read and Read Count from the number of finished reads, shelves from collection names, `to-read (#n)` positions from the queue, notes joined into Private Notes), so Goodreads, StoryGraph and others can import it, and Catalog can re-import it. A selection can be exported the same way.
 
 ## Online look-ups
 
@@ -149,9 +163,9 @@ The only network use. Nothing about the library is sent anywhere except the sear
 
 Bottom tabs: **Library**, **Reading**, **Add**, **Collections**, **Settings**.
 
-- **Library**: search (title, subtitle, authors, ISBN, publisher, review and notes; every word must match; accents and case ignored), status chips with counts, a collection filter (or "In no collection"), sort (recently added, title ignoring articles, author surname, rating, date read, recently changed), grid or list. Layout, sort and filters are remembered. Only the rows on screen are drawn, so thousands of books scroll smoothly.
+- **Library**: search (title, subtitle, authors, ISBN, publisher, review and notes; every word must match; accents and case ignored), status chips with counts, a collection filter (or "In no collection"), sort (recently added, title ignoring articles, author surname, rating, date read (the latest finished read), recently changed), grid or list; list rows say "Read N×" for books read more than once. Layout, sort and filters are remembered. Only the rows on screen are drawn, so thousands of books scroll smoothly.
 - **Select mode** (Select, or long-press a book): tap to toggle, shift-click for a range, "Select all N" for everything matching the current filters. Actions: Status, Collection (add to any, create a new one, remove from any the selection is in), Delete (asks first, takes a safety copy, Undo), More (look for covers again, export as Goodreads CSV). Done leaves select mode.
-- **Book**: cover, title, authors, rating paws (tap the same paw to clear), status, started and finished dates, progress (page of N, or percent when the page count is unknown), collections (toggle, or create one), notes (dated, optional page, edit, delete with Undo), review, and a catalog card of details with Edit details, Fill in from the web (fills only empty fields) and Delete (Undo).
+- **Book**: cover, title, authors, rating paws (tap the same paw to clear), status, progress for the read in progress (page of N, or percent when the page count is unknown), **Reads** (each read with its dates and note count, which jumps to its notes; Edit; Delete with Undo; **Start a reread** for a book read before with none in progress; **Add a past read**, dates optional), collections (toggle, or create one), **notes** (dated, optional page, edit, delete with Undo; an **About** picker chooses the read or the book in general, defaulting to the read in progress; once the book has reads, notes are grouped by read, in the same order as the Reads card, then the book in general, so each read's impressions can be compared), review, and a catalog card of details with Edit details, Fill in from the web (fills only empty fields) and Delete (Undo).
 - **Reading**: *Reading now* (books with status Reading, each with its progress), this year's goal card (see Reading goals), and *Up next*: the to-read queue in order. Drag a row by its handle, or use Top / Up / Down; Start moves a book to Reading.
 - **Reading stats** (`#/stats`, from "See reading stats" on the goal card): see Reading goals and stats.
 - **Add**: see Online look-ups; also links to the Goodreads import.
@@ -161,14 +175,14 @@ Bottom tabs: **Library**, **Reading**, **Add**, **Collections**, **Settings**.
 
 ## Reading goals and stats
 
-- **What counts**: a book counts in the year of its `finished` date, whatever its status now (a reread in progress still counted the year it was finished). Deleted books don't count. Goodreads exports only the latest Date Read, so earlier reads of a reread book can't be placed.
-- **Undated reads**: books with status Read and no finish date count in no year. The stats page lists them under "N read books have no finish date"; each opens its book page to set the date.
-- **Pages**: only books with a page count are added up; the goal card and stats say how many books have none.
+- **What counts**: every finished read with a date counts in its year, rereads included, whatever the book's status now; a book read in 2021 and again in 2026 counts in both. Reads of deleted books don't count. Goodreads exports only the latest Date Read, so a Goodreads import can't place earlier reads in a year (they arrive as reads of unknown date).
+- **Undated reads**: reads with no finish date, and books marked Read with no reads, count in no year. The stats page lists those books ("N books have a read with no finish date"); each opens its book page, where the read can be dated or deleted.
+- **Pages**: a read adds its book's page count; reads of books without one aren't in the page total, and the goal card and stats say how many.
 - **Goals**: per year, set from the goal card (Set a goal / Edit; clearing both numbers removes it). Past years can have one too ("Add the goal you had"), since Goodreads doesn't export reading-challenge goals.
 - **Pace**: an even pace through the year. `expected = goal × day of year ÷ days in year`; ahead or behind by `round(done − expected)`, otherwise on pace. The meter's tick marks where an even pace would be today. The rate needed to finish counts today as a reading day: "about one every N days" (N ≥ 2), "about one a week / every N weeks" (10+ days apart), or "about N a day". Pages always show a per-day rate.
 - **Statuses**: goal reached (and how far over), missed by N (a past year), starts January 1 (a future year), or ahead / behind / on pace.
 - **Goal card**: the year's headline (books if set, else pages) with a meter per measure; without a goal, the year so far and a Set a goal button. On the Reading tab it links to the stats page.
-- **Stats page**: year chips (years with finished books, years with goals, and this year; newest first), the goal card for that year, totals (books, pages, average rating of rated books, average length), *Books finished each month* (one column per month; the tallest is labelled; hover or focus shows the month's books and pages; each column has a full text description), *Books finished each year* (every year from the first finished book to now, gaps included; the selected year in green, the rest gray; tap one to switch), longest and shortest book (with page counts), and the year's books newest first with finish date and rating (first 10, then Show all). The list doubles as the charts' table view.
+- **Stats page**: year chips (years with finished books, years with goals, and this year; newest first), the goal card for that year, totals (books read, with how many were rereads; pages; average rating of rated books; average length), *Books finished each month* (one column per month; the tallest is labelled; hover or focus shows the month's books and pages; each column has a full text description), *Books finished each year* (every year from the first finished book to now, gaps included; the selected year in green, the rest gray; tap one to switch), longest and shortest book (with page counts), and the year's reads newest first with finish date, a Reread stamp where it applies, and rating (first 10, then Show all). The list doubles as the charts' table view.
 
 ## Cats
 

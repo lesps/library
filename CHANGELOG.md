@@ -2,6 +2,18 @@
 
 Each release's bullets are shown in the app's "What's new" note, so they're written for the person using Catalog. Notes for developers go under a "### Developer" heading, which the app skips.
 
+## 0.4.0 — 2026-11-07
+
+- Rereads: each time you read a book is now a read of its own, with its own dates. On a book's page, Reads lists them all; tap Start a reread to read it again, or Add a past read for one you remember.
+- Notes can be about a particular read. While you're rereading, new notes go with that read, and a book's notes are grouped by read so you can compare what you noticed each time.
+- Rereads count toward your reading goal, and the stats mark them.
+- Your Goodreads read counts come over too: the latest Date Read becomes a dated read, and earlier reads Goodreads counted (but doesn't export dates for) appear as "Date unknown". Add a date to any of them to count it in its year.
+- Your existing books and safety copies are converted automatically the first time this version opens.
+
+### Developer
+
+- `src/lib/reads.js`; database version 2 (a `reads` store, filled from books' old `started`/`finished`/`readCount` with deterministic ids); backup format version 2 (version 1 still reads); notes gain an optional `readId`.
+
 ## 0.3.0 — 2026-11-07
 
 - Reading goals: set a goal for the year in books, pages or both. The Reading tab shows how far along you are, how many are left, and whether you're ahead of or behind an even pace.

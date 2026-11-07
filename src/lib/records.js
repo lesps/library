@@ -19,7 +19,9 @@ export function sanitizeNote(raw) {
   if (!raw || !id(raw.id) || !id(raw.bookId) || typeof raw.text !== 'string') return null;
   const text = raw.text.replace(/\r\n?/g, '\n').trim().slice(0, MAX_TEXT);
   if (!text) return null;
-  return withDeleted({ id: raw.id, bookId: raw.bookId, text, page: page(raw.page), at: ts(raw.at), updatedAt: ts(raw.updatedAt) }, raw);
+  const out = { id: raw.id, bookId: raw.bookId, text, page: page(raw.page), at: ts(raw.at), updatedAt: ts(raw.updatedAt) };
+  if (id(raw.readId)) out.readId = raw.readId; // a note about one read of the book (reads.js)
+  return withDeleted(out, raw);
 }
 
 export function sanitizeProgress(raw) {

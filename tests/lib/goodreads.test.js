@@ -25,9 +25,9 @@ describe('parseGoodreads', () => {
     expect(martian.goodreadsId).toBe('18007564');
     expect(martian.fields).toMatchObject({
       title: 'The Martian', authors: ['Andy Weir'], authorSort: 'Weir, Andy', isbn10: '0553418025', isbn13: '9780553418026',
-      rating: 5, publisher: 'Crown', binding: 'Paperback', pages: 387, year: 2014, originalYear: 2011,
-      status: 'read', finished: '2023-04-15', readCount: 2, owned: true,
+      rating: 5, publisher: 'Crown', binding: 'Paperback', pages: 387, year: 2014, originalYear: 2011, status: 'read', owned: true,
     });
+    expect(martian.reads).toEqual({ count: 2, finished: '2023-04-15', reading: false });
     expect(martian.fields.addedAt).toBe(new Date(2022, 11, 1, 12).getTime());
     expect(martian.fields.review).toBe('Funny and tense.\n\nLoved the potatoes & the duct tape.');
     expect(martian.shelves).toEqual(['sci-fi', 'favorites']);
@@ -58,6 +58,16 @@ describe('parseGoodreads', () => {
 describe('planImport', () => {
   const { rows } = parseGoodreads(fixture);
 
+  it('turns read counts and dates into reads: the latest dated, earlier ones date unknown', () => {
+    const data = applyEdits(emptyData(), planImport(rows, emptyData(), { now: T }).edits);
+    const martian = data.books.find((b) => b.title === 'The Martian');
+    expect(data.reads.filter((r) => r.bookId === martian.id).map((r) => [r.finished, r.done])).toEqual([['2023-04-15', true], ['', true]]);
+    const habits = data.books.find((b) => b.title === 'Atomic Habits');
+    expect(data.reads.filter((r) => r.bookId === habits.id).map((r) => r.done)).toEqual([false]);
+    const dune = data.books.find((b) => b.title === 'Fahrenheit 451');
+    expect(data.reads.filter((r) => r.bookId === dune.id)).toEqual([]);
+  });
+
   it('adds every book into an empty library, with collections, notes and a to-read order', () => {
     const plan = planImport(rows, emptyData(), { now: T });
     expect(plan.counts).toEqual({ add: 5, update: 0, unchanged: 0, collections: 3, notes: 1 });
@@ -79,10 +89,19 @@ describe('planImport', () => {
 
   it('a newer export updates what changed on Goodreads, by Goodreads id', () => {
     const first = applyEdits(emptyData(), planImport(rows, emptyData(), { now: T }).edits);
-    const later = rows.map((r) => (r.goodreadsId === '40121378' ? { ...r, fields: { ...r.fields, status: 'read', finished: '2026-11-01', rating: 5 } } : r));
+    const later = rows.map((r) => (r.goodreadsId === '40121378' ? { ...r, fields: { ...r.fields, status: 'read', rating: 5 }, reads: { count: 1, finished: '2026-11-01', reading: false } } : r));
     const plan = planImport(later, first, { now: T + 1000 });
     expect(plan.counts).toMatchObject({ add: 0, update: 1 });
-    expect(plan.edits.books[0]).toMatchObject({ title: 'Atomic Habits', status: 'read', finished: '2026-11-01', rating: 5 });
+    expect(plan.edits.books[0]).toMatchObject({ title: 'Atomic Habits', status: 'read', rating: 5 });
+    expect(plan.edits.reads.map((r) => r.finished)).toEqual(['2026-11-01']);
+  });
+
+  it('a reread logged on Goodreads since the last export becomes a new read', () => {
+    const first = applyEdits(emptyData(), planImport(rows, emptyData(), { now: T }).edits);
+    const later = rows.map((r) => (r.goodreadsId === '18007564' ? { ...r, reads: { count: 3, finished: '2026-10-10', reading: false } } : r));
+    const plan = planImport(later, first, { now: T + 1000 });
+    expect(plan.counts).toMatchObject({ add: 0, update: 1, unchanged: 4 });
+    expect(plan.edits.reads.map((r) => r.finished)).toEqual(['2026-10-10']);
   });
 
   it('matches books already added by hand, by ISBN, and reuses collections by name', () => {
@@ -97,7 +116,7 @@ describe('planImport', () => {
 
   it('can leave books already in the library alone', () => {
     const first = applyEdits(emptyData(), planImport(rows, emptyData(), { now: T }).edits);
-    const later = rows.map((r) => ({ ...r, fields: { ...r.fields, rating: 1 } }));
+    const later = rows.map((r) => ({ ...r, fields: { ...r.fields, rating: 1 }, reads: { ...r.reads, count: 9 } }));
     expect(planImport(later, first, { now: T + 1, updateExisting: false }).counts).toMatchObject({ update: 0, unchanged: 5 });
   });
 });

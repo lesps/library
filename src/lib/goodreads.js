@@ -5,6 +5,7 @@ import { csvObjects, toCsv } from './csv.js';
 import { cleanIsbn } from './isbn.js';
 import { parseLooseDate, ymd } from './dates.js';
 import { createBook, updateBook, authorLastFirst } from './book.js';
+import { reconcileReads, readCounts } from './reads.js';
 import { createNote, createCollection, findCollection } from './records.js';
 import { findDuplicate } from './library.js';
 import { rankBetween, spreadRanks } from './rank.js';
@@ -75,12 +76,12 @@ export function parseGoodreads(text) {
         year: num(r['Year Published']),
         originalYear: num(r['Original Publication Year']),
         status,
-        finished: parseLooseDate(r['Date Read']),
-        readCount: status === 'read' && readCount === 0 ? 1 : readCount,
         owned: (num(r['Owned Copies']) ?? 0) > 0,
         review: reviewText(r['My Review']),
         addedAt: added ? noonOf(added) : 0,
       },
+      // Goodreads keeps every read's dates on its site, but exports only a count and the latest Date Read.
+      reads: { count: status === 'read' && readCount === 0 ? 1 : readCount, finished: parseLooseDate(r['Date Read']), reading: status === 'reading' },
       shelves,
       toReadPosition: pos ? Number(pos[1]) : null,
       privateNotes: (r['Private Notes'] ?? '').trim(),
@@ -114,7 +115,16 @@ export function planImport(rows, data, { now, updateExisting = true }) {
 
   const touched = new Map(); // id → book (added or updated)
   const added = new Set();
+  const updated = new Set(); // books whose only change is new reads still count as updated
   const notes = [];
+  const reads = [...data.reads];
+  const newReads = [];
+  const addReads = (bookId, row) => {
+    const more = reconcileReads(bookId, reads, row.reads, now);
+    reads.push(...more);
+    newReads.push(...more);
+    return more.length > 0;
+  };
   const needRank = [];
   let unchanged = 0;
   const pool = [...books];
@@ -130,6 +140,7 @@ export function planImport(rows, data, { now, updateExisting = true }) {
     if (!current) {
       book = createBook({ ...row.fields, goodreadsId: row.goodreadsId, source: 'goodreads', collectionIds: row.shelves.map(collectionId) }, { now });
       added.add(book.id);
+      addReads(book.id, row);
       pool.push(book);
       if (book.status === 'want') needRank.push({ book, row });
     } else if (!updateExisting) {
@@ -137,16 +148,17 @@ export function planImport(rows, data, { now, updateExisting = true }) {
       continue;
     } else {
       const f = row.fields;
-      const patch = { status: f.status, readCount: f.readCount, owned: f.owned, goodreadsId: row.goodreadsId };
+      const patch = { status: f.status, owned: f.owned, goodreadsId: row.goodreadsId };
       if (f.rating > 0) patch.rating = f.rating;
-      if (f.finished) patch.finished = f.finished;
       if (f.review) patch.review = f.review;
       for (const k of FILL_IF_EMPTY) if (!current[k] && f[k]) patch[k] = f[k];
       const ids = row.shelves.map(collectionId);
       if (ids.some((id) => !current.collectionIds.includes(id))) patch.collectionIds = [...current.collectionIds, ...ids.filter((id) => !current.collectionIds.includes(id))];
       book = updateBook(current, patch, now);
+      const gotReads = addReads(current.id, row);
       if (book === current) {
-        unchanged += 1;
+        if (gotReads) updated.add(current.id);
+        else unchanged += 1;
         addNote(current.id, row);
         continue;
       }
@@ -166,10 +178,11 @@ export function planImport(rows, data, { now, updateExisting = true }) {
   });
 
   const edited = [...touched.values()];
+  for (const b of edited) if (!added.has(b.id)) updated.add(b.id);
   return {
-    edits: { books: edited, notes, progress: [], collections: created },
+    edits: { books: edited, notes, progress: [], collections: created, reads: newReads },
     collections: created,
-    counts: { add: added.size, update: edited.length - added.size, unchanged, collections: created.length, notes: notes.length },
+    counts: { add: added.size, update: updated.size, unchanged, collections: created.length, notes: notes.length },
   };
 }
 
@@ -177,6 +190,7 @@ const hasNote = (notes, bookId, text) => notes.some((n) => !n.deleted && n.bookI
 
 export function goodreadsCsv(data) {
   const names = new Map(data.collections.filter((c) => !c.deleted).map((c) => [c.id, shelfSlug(c.name)]));
+  const times = readCounts(data.reads ?? []);
   const notesBy = new Map();
   for (const n of [...data.notes].sort((a, b) => a.at - b.at)) {
     if (!n.deleted) notesBy.set(n.bookId, [...(notesBy.get(n.bookId) ?? []), n.text]);
@@ -191,8 +205,8 @@ export function goodreadsCsv(data) {
     return [
       b.goodreadsId, b.title, b.authors[0] ?? '', b.authorSort || authorLastFirst(b.authors[0] ?? ''), b.authors.slice(1).join(', '),
       `="${b.isbn10}"`, `="${b.isbn13}"`, b.rating, '', b.publisher, b.binding, b.pages ?? '', b.year ?? '', b.originalYear ?? '',
-      slashDate(b.finished), slashDate(ymd(new Date(b.addedAt))), shelves.join(', '), positions.join(', '),
-      exclusive, reviewHtml(b.review), '', (notesBy.get(b.id) ?? []).join('\n\n'), b.readCount, b.owned ? 1 : 0,
+      slashDate(times.get(b.id)?.last ?? ''), slashDate(ymd(new Date(b.addedAt))), shelves.join(', '), positions.join(', '),
+      exclusive, reviewHtml(b.review), '', (notesBy.get(b.id) ?? []).join('\n\n'), times.get(b.id)?.count ?? 0, b.owned ? 1 : 0,
     ];
   });
   return toCsv([HEADERS, ...rows]);

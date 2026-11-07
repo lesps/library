@@ -50,7 +50,7 @@ export function editGoal(actions, year, goal) {
 export function goalCard(ctx, year, { compact = false } = {}) {
   const { state, actions, now } = ctx;
   const goal = state.data.settings.goals?.[year] ?? null;
-  const s = yearStats(state.data.books, year);
+  const s = yearStats(state.data.books, state.data.reads, year);
   const t = now();
   const current = new Date(t).getFullYear();
   const mark = year === current ? (dayOfYear(t) - 0.5) / daysInYear(year) : null;
@@ -60,7 +60,7 @@ export function goalCard(ctx, year, { compact = false } = {}) {
     const verb = year < current ? 'You finished' : year > current ? 'Nothing finished in' : 'You’ve finished';
     return h('section', { class: 'goal-card card' },
       h('h2', {}, year === current ? `${year} so far` : String(year)),
-      h('p', {}, year > current ? `${verb} ${year} yet.` : `${verb} ${plural(s.count, 'book')} (${fmt(s.pages)} pages) in ${year}.`),
+      h('p', {}, year > current ? `${verb} ${year} yet.` : `${verb} ${plural(s.count, 'book')} (${fmt(s.pages)} pages) in ${year}${s.rereads ? `, ${plural(s.rereads, 'reread')} among them` : ''}.`),
       h('div', { class: 'card-actions' },
         h('button', { type: 'button', class: 'btn small primary set-goal', onclick: () => editGoal(actions, year, null) }, year < current ? 'Add the goal you had' : 'Set a goal'),
         seeStats));

@@ -2,6 +2,7 @@
 import { titleSortKey, bookAuthorSort } from './book.js';
 import { rankBetween } from './rank.js';
 import { cleanIsbn } from './isbn.js';
+import { readCounts } from './reads.js';
 
 export const normalize = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -13,7 +14,7 @@ export const SORTS = {
   title: { label: 'Title', cmp: tie(byStr((b) => titleSortKey(b.title))) },
   author: { label: 'Author', cmp: tie(byStr(bookAuthorSort)) },
   rating: { label: 'My rating', cmp: tie((a, b) => b.rating - a.rating) },
-  finished: { label: 'Date read', cmp: tie((a, b) => (b.finished || '').localeCompare(a.finished || '')) },
+  finished: { label: 'Date read', cmp: (last) => tie((a, b) => (last.get(b.id)?.last || '').localeCompare(last.get(a.id)?.last || '')) },
   updated: { label: 'Recently changed', cmp: (a, b) => b.updatedAt - a.updatedAt },
 };
 
@@ -22,7 +23,7 @@ function haystack(b, noteText) {
 }
 
 // status: a status or 'all'; collection: an id, 'none' (in no collection) or 'all'; query: words.
-export function queryBooks(books, { status = 'all', collection = 'all', query = '', sort = 'added', notes = [] } = {}) {
+export function queryBooks(books, { status = 'all', collection = 'all', query = '', sort = 'added', notes = [], reads = [] } = {}) {
   const words = normalize(query).split(' ').filter(Boolean).map((w) => (/^[\d-]+x?$/i.test(w) ? cleanIsbn(w).toLowerCase() || w : w));
   let noteText = null;
   if (words.length && notes.length) {
@@ -37,7 +38,8 @@ export function queryBooks(books, { status = 'all', collection = 'all', query = 
     const hay = haystack(b, noteText?.get(b.id) ?? '');
     return words.every((w) => hay.includes(w));
   });
-  return out.sort((SORTS[sort] ?? SORTS.added).cmp);
+  const by = sort === 'finished' ? SORTS.finished.cmp(readCounts(reads)) : (SORTS[sort] ?? SORTS.added).cmp;
+  return out.sort(by);
 }
 
 export function statusCounts(books) {

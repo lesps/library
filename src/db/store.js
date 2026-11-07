@@ -8,17 +8,28 @@ import { openDB } from 'idb';
 import { readRecords, summarize } from '../lib/backup.js';
 import { emptyData, KINDS } from '../lib/merge.js';
 import { sanitizeSettings } from '../lib/settings.js';
+import { legacyReads } from '../lib/reads.js';
 
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 const RECORDS = ['books', ...KINDS];
 
 // Schema history: each step upgrades from the version before it. Never edit a released step.
+// (Step 1 creates the record stores of its time; later stores are created by their own step.)
 const MIGRATIONS = [
   (db) => {
-    for (const s of RECORDS) db.createObjectStore(s, { keyPath: 'id' });
+    for (const s of ['books', 'notes', 'progress', 'collections']) db.createObjectStore(s, { keyPath: 'id' });
     db.createObjectStore('meta'); // settings and device-only values, keyed by name
     db.createObjectStore('snapshots', { keyPath: 'id' }); // { id, at, reason, version, counts }
     db.createObjectStore('snapshotData', { keyPath: 'id' }); // { id, gz } or { id, json }
+  },
+  // 2 (0.4): reads. The read dates kept on each book become read records, inside the upgrade
+  // transaction (only database requests are awaited, so it stays open).
+  (db, tx) => {
+    db.createObjectStore('reads', { keyPath: 'id' });
+    tx.objectStore('books').getAll().then((books) => {
+      const reads = tx.objectStore('reads');
+      for (const b of books) for (const r of legacyReads(b)) reads.put(r);
+    });
   },
 ];
 
@@ -47,8 +58,8 @@ const snapshotId = (at) => `${at}-${Math.random().toString(36).slice(2, 7)}`;
 
 export async function openStore({ name = 'catalog', onVersionChange } = {}) {
   const db = await openDB(name, DB_VERSION, {
-    upgrade(d, oldVersion) {
-      for (let v = oldVersion; v < DB_VERSION; v++) MIGRATIONS[v](d);
+    upgrade(d, oldVersion, newVersion, tx) {
+      for (let v = oldVersion; v < DB_VERSION; v++) MIGRATIONS[v](d, tx);
     },
     // Another tab is opening a newer version: let it, and tell this tab to reload.
     blocking() {

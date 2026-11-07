@@ -106,7 +106,8 @@ describe('select mode and bulk actions', () => {
     t.$('[data-bulk="status"]').click();
     t.$('.sheet [data-status="read"]').click();
     expect(t.live().filter((b) => b.status === 'read').map((b) => b.title).sort()).toEqual(['Dune', 'Emma', 'Persuasion']);
-    expect(t.live().find((b) => b.title === 'Dune').finished).toBe('2026-11-07');
+    const dune = t.live().find((b) => b.title === 'Dune');
+    expect(t.app.state().data.reads.find((r) => r.bookId === dune.id)).toMatchObject({ finished: '2026-11-07', done: true });
     expect(t.$('.toast').textContent).toMatch(/2 books.*Read/);
     t.button('Undo', t.$('.toast')).click();
     expect(t.live().find((b) => b.title === 'Dune').status).toBe('want');

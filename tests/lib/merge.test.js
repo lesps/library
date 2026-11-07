@@ -62,6 +62,12 @@ describe('mergeData', () => {
     expect(data.books[0]).toBe(book);
   });
 
+  it('merges reads record by record, so reads logged on two devices both survive', () => {
+    const a = { ...local, reads: [{ id: 'r1', bookId: 'b1', started: '', finished: '2025-01-01', done: true, at: T, updatedAt: T }] };
+    const b = { ...emptyData(), books: [book], reads: [{ id: 'r2', bookId: 'b1', started: '', finished: '2026-01-01', done: true, at: T, updatedAt: T }] };
+    expect(mergeData(a, b).data.reads.map((r) => r.id).sort()).toEqual(['r1', 'r2']);
+  });
+
   it('takes the newer settings', () => {
     const { data } = mergeData({ ...local, settings: { cats: 'off', updatedAt: T } }, { ...emptyData(), settings: { cats: 'subtle', updatedAt: T + 1 } });
     expect(data.settings.cats).toBe('subtle');

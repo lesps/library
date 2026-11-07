@@ -18,10 +18,11 @@ describe('book page', () => {
     expect(t.$('.catalog-card').textContent).toContain('978-0441013593');
   });
 
-  it('changes status with the dates following', async () => {
-    const { t, get } = await open({ title: 'Dune', status: 'want' });
+  it('changes status, opening a read dated today', async () => {
+    const { t, get, b } = await open({ title: 'Dune', status: 'want' });
     t.$('.status-picker [data-status="reading"]').click();
-    expect(get()).toMatchObject({ status: 'reading', started: '2026-11-07' });
+    expect(get().status).toBe('reading');
+    expect(t.app.state().data.reads.filter((r) => r.bookId === b.id)).toEqual([expect.objectContaining({ started: '2026-11-07', done: false })]);
     expect(t.$('.status-picker [data-status="reading"]').getAttribute('aria-pressed')).toBe('true');
   });
 

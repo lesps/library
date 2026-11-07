@@ -1,7 +1,8 @@
-// Reading by year: what was finished when, against an optional goal. A book counts in the year of
-// its finish date, whatever its status now (a reread in progress still counted when it was finished).
-// Goodreads exports only the latest finish date, so earlier reads of a reread book can't be placed.
+// Reading by year: what was finished when, against an optional goal. What counts is a read with a
+// finish date (reads.js): a book read in 2021 and again in 2026 counts in both years. Reads of an
+// unknown date (earlier reads Goodreads counted but didn't date) count in no year.
 import { isYmd } from './dates.js';
+import { isReread } from './reads.js';
 
 const DAY = 86_400_000;
 
@@ -12,43 +13,51 @@ export function dayOfYear(ts) {
   return Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 1)) / DAY) + 1;
 }
 
-const dated = (books) => books.filter((b) => !b.deleted && isYmd(b.finished));
+// Each dated, finished read of a live book: { read, book }.
+function dated(books, reads) {
+  const live = new Map(books.filter((b) => !b.deleted).map((b) => [b.id, b]));
+  return reads.filter((r) => !r.deleted && r.done && isYmd(r.finished) && live.has(r.bookId)).map((read) => ({ read, book: live.get(read.bookId) }));
+}
 
-export function yearStats(books, year) {
-  const list = dated(books).filter((b) => b.finished.startsWith(`${year}-`))
-    .sort((a, b) => b.finished.localeCompare(a.finished) || a.title.localeCompare(b.title));
-  const paged = list.filter((b) => b.pages);
-  const rated = list.filter((b) => b.rating > 0);
+export function yearStats(books, reads, year) {
+  const byBook = new Map();
+  for (const r of reads) if (!r.deleted) byBook.set(r.bookId, [...(byBook.get(r.bookId) ?? []), r]);
+  const entries = dated(books, reads).filter((e) => e.read.finished.startsWith(`${year}-`))
+    .sort((a, b) => b.read.finished.localeCompare(a.read.finished) || a.book.title.localeCompare(b.book.title))
+    .map((e) => ({ ...e, reread: isReread(e.read, byBook.get(e.book.id) ?? []) }));
+  const paged = entries.filter((e) => e.book.pages);
+  const rated = entries.filter((e) => e.book.rating > 0);
   const byMonth = Array.from({ length: 12 }, (_, month) => ({ month, count: 0, pages: 0 }));
-  for (const b of list) {
-    const m = byMonth[Number(b.finished.slice(5, 7)) - 1];
+  for (const e of entries) {
+    const m = byMonth[Number(e.read.finished.slice(5, 7)) - 1];
     m.count += 1;
-    m.pages += b.pages ?? 0;
+    m.pages += e.book.pages ?? 0;
   }
-  const pages = paged.reduce((n, b) => n + b.pages, 0);
-  const bySize = [...paged].sort((a, b) => b.pages - a.pages);
+  const pages = paged.reduce((n, e) => n + e.book.pages, 0);
+  const bySize = [...paged].sort((a, b) => b.book.pages - a.book.pages);
   return {
     year,
-    books: list,
-    count: list.length,
+    entries,
+    count: entries.length,
+    rereads: entries.filter((e) => e.reread).length,
     pages,
-    unknownPages: list.length - paged.length,
+    unknownPages: entries.length - paged.length,
     avgPages: paged.length ? Math.round(pages / paged.length) : null,
-    avgRating: rated.length ? Math.round((rated.reduce((n, b) => n + b.rating, 0) / rated.length) * 10) / 10 : null,
-    longest: bySize[0] ?? null,
-    shortest: bySize.at(-1) ?? null,
+    avgRating: rated.length ? Math.round((rated.reduce((n, e) => n + e.book.rating, 0) / rated.length) * 10) / 10 : null,
+    longest: bySize[0]?.book ?? null,
+    shortest: bySize.at(-1)?.book ?? null,
     byMonth,
   };
 }
 
 // Every year from the first dated read to the latest (or `current`), gaps included, oldest first.
-export function yearsSummary(books, current) {
+export function yearsSummary(books, reads, current) {
   const byYear = new Map();
-  for (const b of dated(books)) {
-    const y = Number(b.finished.slice(0, 4));
+  for (const { read, book } of dated(books, reads)) {
+    const y = Number(read.finished.slice(0, 4));
     const e = byYear.get(y) ?? { count: 0, pages: 0 };
     e.count += 1;
-    e.pages += b.pages ?? 0;
+    e.pages += book.pages ?? 0;
     byYear.set(y, e);
   }
   const years = [...byYear.keys(), current];
@@ -57,7 +66,17 @@ export function yearsSummary(books, current) {
   return out;
 }
 
-export const undatedReads = (books) => books.filter((b) => !b.deleted && b.status === 'read' && !isYmd(b.finished));
+// Books that can't be placed in a year: a finished read with no date, or marked read with no reads.
+export function undatedReads(books, reads) {
+  const undated = new Set();
+  const any = new Set();
+  for (const r of reads) {
+    if (r.deleted || !r.done) continue;
+    any.add(r.bookId);
+    if (!r.finished) undated.add(r.bookId);
+  }
+  return books.filter((b) => !b.deleted && (undated.has(b.id) || (b.status === 'read' && !any.has(b.id))));
+}
 
 // Where `done` stands against `goal` for `year`, judged against an even pace through the year.
 // status: done | missed (a past year) | upcoming (a future year) | ahead | behind | on; `by` is how

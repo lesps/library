@@ -76,7 +76,7 @@ describe('stats page', () => {
 
   it('says which read books can’t be counted, and opens them to fix', async () => {
     const t = await open();
-    expect(t.$('.undated summary').textContent).toMatch(/1 read book has no finish date/);
+    expect(t.$('.undated summary').textContent).toMatch(/1 book has a read with no finish date/);
     t.$('.undated .ud-book').click();
     expect(t.$('main').dataset.view).toBe('book');
   });

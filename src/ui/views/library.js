@@ -5,6 +5,7 @@ import { mascot } from '../cat-layer.js';
 import { shelf } from '../shelf.js';
 import { queryBooks, statusCounts, SORTS } from '../../lib/library.js';
 import { STATUS_LABELS } from '../../lib/book.js';
+import { readCounts } from '../../lib/reads.js';
 
 const CHIPS = [['all', 'All'], ['reading', 'Reading'], ['want', 'Want to read'], ['read', 'Read'], ['none', 'No status']];
 const LONG_PRESS = 450;
@@ -42,7 +43,8 @@ export function libraryView(ctx) {
   if (!counts.all) return emptyLibrary(ctx);
 
   const collections = actions.collections();
-  const books = queryBooks(state.data.books, { ...lib, notes: state.data.notes });
+  const books = queryBooks(state.data.books, { ...lib, notes: state.data.notes, reads: state.data.reads });
+  const times = lib.layout === 'list' ? readCounts(state.data.reads) : null;
   const order = books.map((b) => b.id);
   const sel = state.selection;
   const nameOf = new Map(collections.map((c) => [c.id, c.name]));
@@ -55,6 +57,7 @@ export function libraryView(ctx) {
         h('span', { class: 'title' }, displayTitle(b)),
         h('span', { class: 'author' }, b.needsLookup ? 'Details pending' : b.authors.join(', ')),
         lib.layout === 'list' ? h('span', { class: 'row-extra' }, stamp(b.status), paws(b.rating, 'small'),
+          (times.get(b.id)?.count ?? 0) > 1 ? h('span', { class: 'reads-count' }, `Read ${times.get(b.id).count}×`) : null,
           b.collectionIds.length ? h('span', { class: 'in' }, b.collectionIds.map((id) => nameOf.get(id)).filter(Boolean).join(', ')) : null) : null),
       lib.layout === 'grid' && b.status === 'reading' ? h('span', { class: 'ribbon' }, 'Reading') : null,
       sel ? h('span', { class: 'tick', html: ICONS.check }) : null);
