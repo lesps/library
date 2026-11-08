@@ -10,7 +10,7 @@ import { emptyData, KINDS } from '../lib/merge.js';
 import { sanitizeSettings } from '../lib/settings.js';
 import { legacyReads } from '../lib/reads.js';
 
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 const RECORDS = ['books', ...KINDS];
 
 // Schema history: each step upgrades from the version before it. Never edit a released step.
@@ -30,6 +30,10 @@ const MIGRATIONS = [
       const reads = tx.objectStore('reads');
       for (const b of books) for (const r of legacyReads(b)) reads.put(r);
     });
+  },
+  // 3 (0.6): swipes, Discover's verdicts on books it dealt.
+  (db) => {
+    db.createObjectStore('swipes', { keyPath: 'id' });
   },
 ];
 

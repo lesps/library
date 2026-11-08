@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createNote, sanitizeNote, createProgress, sanitizeProgress, currentProgress, progressPercent, createCollection, sanitizeCollection, touch, findCollection } from '../../src/lib/records.js';
+import { createNote, sanitizeNote, createProgress, sanitizeProgress, currentProgress, progressPercent, createCollection, sanitizeCollection, touch, findCollection, createSwipe, sanitizeSwipe, swipeId } from '../../src/lib/records.js';
 
 const T = 1_700_000_000_000;
 
@@ -66,5 +66,21 @@ describe('touch', () => {
     expect(touch(n, { text: 'b' }, T + 1, sanitizeNote)).toMatchObject({ text: 'b', updatedAt: T + 1 });
     expect(touch(n, { text: 'a' }, T + 1, sanitizeNote)).toBe(n);
     expect(touch(n, { deleted: true }, T + 1, sanitizeNote)).toMatchObject({ deleted: true, updatedAt: T + 1 });
+  });
+});
+
+describe('swipes', () => {
+  it('records a verdict on an Open Library work, one record per work', () => {
+    const s = createSwipe({ work: '/works/OL45804W', title: ' Fantastic Mr Fox ', authors: ['Roald Dahl'], verdict: 'no', features: ['s:foxes', 'a:roald dahl'], peeked: true }, { now: T });
+    expect(s).toEqual({ id: 'sw-OL45804W', work: '/works/OL45804W', title: 'Fantastic Mr Fox', authors: ['Roald Dahl'], verdict: 'no', features: ['s:foxes', 'a:roald dahl'], peeked: true, at: T, updatedAt: T });
+    expect(swipeId('/works/OL45804W')).toBe('sw-OL45804W');
+  });
+
+  it('rejects unknown verdicts and works, and keeps features short', () => {
+    expect(sanitizeSwipe({ id: 'sw-OL1W', work: '/works/OL1W', verdict: 'maybe', at: T, updatedAt: T })).toBe(null);
+    expect(sanitizeSwipe({ id: 'sw-x', work: 'nope', verdict: 'no', at: T, updatedAt: T })).toBe(null);
+    const s = sanitizeSwipe({ id: 'sw-OL1W', work: '/works/OL1W', verdict: 'want', features: [...Array(80)].map((_, i) => `s:${i}`).concat([42]), at: T, updatedAt: T, deleted: true });
+    expect(s.features).toHaveLength(40);
+    expect(s).toMatchObject({ title: '', authors: [], peeked: false, deleted: true });
   });
 });

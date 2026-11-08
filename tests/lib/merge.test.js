@@ -62,6 +62,13 @@ describe('mergeData', () => {
     expect(data.books[0]).toBe(book);
   });
 
+  it('merges swipes per work, the newest verdict winning', () => {
+    const sw = (verdict, at, extra = {}) => ({ id: 'sw-OL1W', work: '/works/OL1W', title: 'X', authors: [], verdict, features: [], peeked: false, at, updatedAt: at, ...extra });
+    const a = { ...local, swipes: [sw('no', T)] };
+    const b = { ...emptyData(), books: [book], swipes: [sw('no', T, { deleted: true, updatedAt: T + 5 })] };
+    expect(mergeData(a, b).data.swipes).toEqual([sw('no', T, { deleted: true, updatedAt: T + 5 })]);
+  });
+
   it('merges reads record by record, so reads logged on two devices both survive', () => {
     const a = { ...local, reads: [{ id: 'r1', bookId: 'b1', started: '', finished: '2025-01-01', done: true, at: T, updatedAt: T }] };
     const b = { ...emptyData(), books: [book], reads: [{ id: 'r2', bookId: 'b1', started: '', finished: '2026-01-01', done: true, at: T, updatedAt: T }] };

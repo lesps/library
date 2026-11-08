@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { openDB } from 'idb';
 import { openStore, createMemoryStore, DB_VERSION } from '../../src/db/store.js';
 import { createBook } from '../../src/lib/book.js';
-import { createNote, createCollection } from '../../src/lib/records.js';
+import { createNote, createCollection, createSwipe } from '../../src/lib/records.js';
 
 const T = 1_700_000_000_000;
 let dbn = 0;
@@ -31,6 +31,7 @@ describe.each(kinds)('%s store', (kind, make) => {
       books: [b],
       notes: [createNote({ bookId: 'b1', text: 'hi' }, { now: T, id: 'n1' })],
       collections: [createCollection({ name: 'Sci-fi' }, { now: T, id: 'c1' })],
+      swipes: [createSwipe({ work: '/works/OL1W', verdict: 'no' }, { now: T })],
       settings: { cats: 'off', updatedAt: T },
       meta: { lastExport: T, prefs: { view: 'list' } },
     });
@@ -38,7 +39,8 @@ describe.each(kinds)('%s store', (kind, make) => {
     expect(data.books).toEqual([b]);
     expect(data.notes[0].text).toBe('hi');
     expect(data.collections[0].name).toBe('Sci-fi');
-    expect(data.settings).toEqual({ cats: 'off', goals: {}, updatedAt: T });
+    expect(data.swipes.map((s) => s.id)).toEqual(['sw-OL1W']);
+    expect(data.settings).toEqual({ cats: 'off', goals: {}, mutedLanes: [], updatedAt: T });
     expect(meta).toEqual({ lastExport: T, prefs: { view: 'list' } });
   });
 
@@ -90,7 +92,26 @@ describe('indexeddb store', () => {
     expect((await b.loadAll()).data.books[0].title).toBe('Dune');
   });
 
-  it('is at the current schema version', () => expect(DB_VERSION).toBe(2));
+  it('is at the current schema version', () => expect(DB_VERSION).toBe(3));
+
+  it('upgrades a 0.5 database: adds the swipes store and keeps everything else', async () => {
+    const name = `v2-${dbn++}`;
+    const v2 = await openDB(name, 2, {
+      upgrade(db) {
+        for (const s of ['books', 'notes', 'progress', 'collections', 'reads']) db.createObjectStore(s, { keyPath: 'id' });
+        db.createObjectStore('meta');
+        db.createObjectStore('snapshots', { keyPath: 'id' });
+        db.createObjectStore('snapshotData', { keyPath: 'id' });
+      },
+    });
+    await v2.put('books', createBook({ title: 'Kept' }, { now: T, id: 'k' }));
+    v2.close();
+    const s = await openStore({ name });
+    await s.commit({ swipes: [createSwipe({ work: '/works/OL2W', verdict: 'want' }, { now: T })] });
+    const { data } = await s.loadAll();
+    expect(data.books.map((b) => b.title)).toEqual(['Kept']);
+    expect(data.swipes.map((x) => x.verdict)).toEqual(['want']);
+  });
 
   it('upgrades a 0.3 database: read dates on books become reads, older safety copies still restore', async () => {
     const name = `v1-${dbn++}`;

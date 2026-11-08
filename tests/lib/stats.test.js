@@ -129,4 +129,9 @@ describe('goals in settings', () => {
     expect(s.goals).toEqual({ 2026: { books: 40, pages: 12000 }, 2024: { books: null, pages: 5000 } });
     expect(sanitizeSettings({}).goals).toEqual({});
   });
+
+  it('keeps the Discover lanes muted, as a short list of keys', () => {
+    expect(sanitizeSettings({ mutedLanes: ['s:horror', 's:horror', 42, '', 'x'.repeat(200)] }).mutedLanes).toEqual(['s:horror']);
+    expect(sanitizeSettings({}).mutedLanes).toEqual([]);
+  });
 });

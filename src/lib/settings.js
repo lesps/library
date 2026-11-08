@@ -1,7 +1,8 @@
 // Settings that travel with backups. `cats`: how many background cats to draw. `goals`: reading
-// goals by year, { "2026": { books: 40, pages: 12000 } }; either number may be null.
+// goals by year, { "2026": { books: 40, pages: 12000 } }; either number may be null. `mutedLanes`:
+// keys of Discover lanes not to deal from (taste.js).
 export const CAT_LEVELS = ['lively', 'subtle', 'off'];
-export const DEFAULT_SETTINGS = { cats: 'lively', goals: {}, updatedAt: 0 };
+export const DEFAULT_SETTINGS = { cats: 'lively', goals: {}, mutedLanes: [], updatedAt: 0 };
 
 const count = (max) => (v) => {
   const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
@@ -27,6 +28,7 @@ export function sanitizeSettings(raw) {
   return {
     cats: CAT_LEVELS.includes(s.cats) ? s.cats : DEFAULT_SETTINGS.cats,
     goals: sanitizeGoals(s.goals),
+    mutedLanes: Array.isArray(s.mutedLanes) ? [...new Set(s.mutedLanes.filter((k) => typeof k === 'string' && k && k.length <= 100))].slice(0, 50) : [],
     updatedAt: typeof s.updatedAt === 'number' && Number.isFinite(s.updatedAt) && s.updatedAt >= 0 ? s.updatedAt : 0,
   };
 }

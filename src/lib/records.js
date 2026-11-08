@@ -70,3 +70,28 @@ export const findCollection = (collections, name) => {
   const key = String(name ?? '').trim().toLowerCase();
   return collections.find((c) => !c.deleted && c.name.toLowerCase() === key);
 };
+
+// Swipes: what the reader said about a book Discover dealt them. One per Open Library work (the id
+// comes from the work), so swiping the same book on two devices merges to one verdict. `features`
+// keeps the card's taste features, so learning can be recomputed from swipes alone (taste.js).
+export const VERDICTS = ['no', 'want', 'read'];
+const WORK = /^\/works\/OL\d+W$/;
+export const swipeId = (work) => `sw-${work.slice('/works/'.length)}`;
+
+export function sanitizeSwipe(raw) {
+  if (!raw || !id(raw.id) || typeof raw.work !== 'string' || !WORK.test(raw.work) || !VERDICTS.includes(raw.verdict)) return null;
+  const strings = (v, max, len) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().slice(0, len)).slice(0, max) : []);
+  return withDeleted({
+    id: raw.id,
+    work: raw.work,
+    title: typeof raw.title === 'string' ? raw.title.replace(/\s+/g, ' ').trim().slice(0, 300) : '',
+    authors: strings(raw.authors, 5, 200),
+    verdict: raw.verdict,
+    features: strings(raw.features, 40, 120),
+    peeked: raw.peeked === true,
+    at: ts(raw.at),
+    updatedAt: ts(raw.updatedAt),
+  }, raw);
+}
+
+export const createSwipe = (fields, { now }) => sanitizeSwipe({ ...fields, id: swipeId(fields.work ?? ''), at: now, updatedAt: now });

@@ -2,9 +2,10 @@
 // here; fetching (and rate limiting) is the UI's job. Covers are always fetched by Open Library
 // cover id: cover URLs keyed by ISBN are limited to 100 per 5 minutes per IP.
 import { isbnFromQuery, toIsbn13, cleanIsbn, isIsbn10 } from './isbn.js';
+import { cleanSubjects } from './taste.js';
 
 const OL = 'https://openlibrary.org/search.json';
-const OL_FIELDS = 'key,title,subtitle,author_name,first_publish_year,cover_i,number_of_pages_median,publisher';
+const OL_FIELDS = 'key,title,subtitle,author_name,first_publish_year,cover_i,number_of_pages_median,publisher,subject,place,time';
 const RETRY_MISS = 30 * 86_400_000;
 
 export function olSearchUrl(query, { limit = 12 } = {}) {
@@ -33,6 +34,7 @@ export function parseOlSearch(json, { isbn = '' } = {}) {
     coverId: Number.isInteger(d.cover_i) && d.cover_i > 0 ? d.cover_i : null,
     olWork: str(d.key),
     isbn13: isbn, // a work has many editions; only the ISBN searched for is known to be right
+    subjects: cleanSubjects([d.subject, d.place, d.time]),
     source: 'openlibrary',
   }));
 }
@@ -67,21 +69,30 @@ export function parseGoogle(json) {
 
 export function coverLookupUrl(book) {
   const p = new URLSearchParams(book.isbn13 ? { isbn: book.isbn13 } : { title: book.title, ...(book.authors[0] ? { author: book.authors[0] } : {}) });
-  p.set('fields', 'key,cover_i,number_of_pages_median');
+  p.set('fields', 'key,cover_i,number_of_pages_median,subject,place,time');
   p.set('limit', '1');
   return `${OL}?${p}`;
-}
-
-export function parseCoverLookup(json) {
-  const d = Array.isArray(json?.docs) ? json.docs.find((x) => Number.isInteger(x?.cover_i) && x.cover_i > 0) : null;
-  if (!d) return null;
-  const pages = Number.isInteger(d.number_of_pages_median) && d.number_of_pages_median > 0 ? d.number_of_pages_median : null;
-  return { coverId: d.cover_i, olWork: str(d.key), ...(pages ? { pages } : {}) };
 }
 
 export function coverSrc(book, size = 'M') {
   if (book.coverId) return `https://covers.openlibrary.org/b/id/${book.coverId}-${size}.jpg`;
   return book.coverUrl || '';
 }
+
+// The background look-up: the best match's cover (the first result that has one), work, page count
+// and subjects. Subjects come from the work the cover came from, so they describe the same book.
+export function parseBookLookup(json) {
+  const docs = Array.isArray(json?.docs) ? json.docs : [];
+  const d = docs.find((x) => Number.isInteger(x?.cover_i) && x.cover_i > 0) ?? docs[0];
+  if (!d) return null;
+  return {
+    coverId: Number.isInteger(d.cover_i) && d.cover_i > 0 ? d.cover_i : null,
+    olWork: str(d.key),
+    pages: Number.isInteger(d.number_of_pages_median) && d.number_of_pages_median > 0 ? d.number_of_pages_median : null,
+    subjects: cleanSubjects([d.subject, d.place, d.time]),
+  };
+}
+
+export const needsSubjects = (b, now) => !b.deleted && !b.needsLookup && (!b.subjectsAt || (!b.subjects?.length && now - b.subjectsAt > RETRY_MISS));
 
 export const needsCover = (b, now) => !b.deleted && !b.needsLookup && !b.coverId && !b.coverUrl && now - (b.coverCheckedAt ?? 0) > RETRY_MISS;

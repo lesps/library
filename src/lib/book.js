@@ -59,6 +59,8 @@ export const BOOK_FIELDS = {
   goodreadsId: text(30),
   seriesName: text(200),
   seriesNumber: text(20), // text, for "2.5" and "1-3"
+  subjects: list(20, 60), // cleaned Open Library subjects (taste.js cleanSubjects), for Discover
+  subjectsAt: ts, // when subjects were last looked up
   status: oneOf(STATUSES, 'none'),
   rating: clampInt(0, 5),
   review: longText,

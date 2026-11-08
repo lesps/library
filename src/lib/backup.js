@@ -1,6 +1,6 @@
 // The backup file: everything in the library, deleted markers included, as one JSON document.
 import { sanitizeBook } from './book.js';
-import { sanitizeNote, sanitizeProgress, sanitizeCollection } from './records.js';
+import { sanitizeNote, sanitizeProgress, sanitizeCollection, sanitizeSwipe } from './records.js';
 import { sanitizeSettings } from './settings.js';
 import { mergeBook, emptyData } from './merge.js';
 import { sanitizeRead, legacyReads } from './reads.js';
@@ -8,8 +8,10 @@ import { seriesFromTitle } from './series.js';
 import { ymd } from './dates.js';
 
 export const FORMAT = 'catalog-library';
-export const VERSION = 2; // 2 (0.4): reads. Version 1 files keep read dates on books; readRecords converts them.
-const READABLE = [1, 2];
+// 2 (0.4): reads. Version 1 files keep read dates on books; readRecords converts them.
+// 3 (0.6): swipes (Discover). Earlier files have none.
+export const VERSION = 3;
+const READABLE = [1, 2, 3];
 const WEEK = 7 * 86_400_000;
 
 export function exportData(data, now) {
@@ -23,12 +25,13 @@ export function exportData(data, now) {
     progress: data.progress,
     collections: data.collections,
     reads: data.reads,
+    swipes: data.swipes,
   };
 }
 
 export const backupFilename = (now) => `catalog-${ymd(new Date(now))}.json`;
 
-const SANITIZERS = { notes: sanitizeNote, progress: sanitizeProgress, collections: sanitizeCollection, reads: sanitizeRead };
+const SANITIZERS = { notes: sanitizeNote, progress: sanitizeProgress, collections: sanitizeCollection, reads: sanitizeRead, swipes: sanitizeSwipe };
 
 // Validates every record (bad ones are skipped and counted); a repeated id keeps the newest copy.
 // Data from before reads existed (version 1 backups, older safety copies) has no reads list: the

@@ -23,7 +23,7 @@ import { rankBetween, spreadRanks } from '../lib/rank.js';
 import { dayKey } from '../lib/dates.js';
 import { exportData, backupFilename, parseBackup, backupDue } from '../lib/backup.js';
 import { parseGoodreads, planImport, goodreadsCsv } from '../lib/goodreads.js';
-import { olSearchUrl, parseOlSearch, googleSearchUrl, parseGoogle, coverLookupUrl, parseCoverLookup, needsCover } from '../lib/lookup.js';
+import { olSearchUrl, parseOlSearch, googleSearchUrl, parseGoogle, coverLookupUrl, parseBookLookup, needsCover, needsSubjects } from '../lib/lookup.js';
 import { isbnFromQuery } from '../lib/isbn.js';
 import { parseChangelog, notesSince, releasesUpTo } from '../lib/changelog.js';
 import { libraryView } from './views/library.js';
@@ -335,9 +335,10 @@ export function mountApp(root, opts = {}) {
         if (!state.online) break;
         const live = state.data.books.filter((b) => !b.deleted && !tried.has(b.id));
         const details = live.find((b) => b.needsLookup);
-        const cover = details ? null : live.filter((b) => needsCover(b, now())).sort((a, b) => b.addedAt - a.addedAt)[0];
+        const wanted = (b) => needsCover(b, now()) || needsSubjects(b, now());
+        const cover = details ? null : live.filter(wanted).sort((a, b) => b.addedAt - a.addedAt)[0];
         const book = details ?? cover;
-        w.remaining = live.filter((b) => b.needsLookup || needsCover(b, now())).length;
+        w.remaining = live.filter((b) => b.needsLookup || wanted(b)).length;
         if (!book) break;
         tried.add(book.id);
         try {
@@ -347,9 +348,14 @@ export function mountApp(root, opts = {}) {
               batch.push([book.id, { ...Object.fromEntries(DETAIL_FIELDS.filter((f) => hit[f] != null && hit[f] !== '').map((f) => [f, hit[f]])), needsLookup: false, coverCheckedAt: now() }]);
             }
           } else {
-            const found = parseCoverLookup(await net.get(coverLookupUrl(book), { priority: 'background' }));
-            const { pages, ...cover } = found ?? {};
-            batch.push([book.id, found ? { ...cover, ...(pages && !book.pages ? { pages } : {}) } : { coverCheckedAt: now() }]);
+            // One request brings the cover, a missing page count, and the subjects Discover uses.
+            const found = parseBookLookup(await net.get(coverLookupUrl(book), { priority: 'background' }));
+            const patch = {};
+            if (needsCover(book, now())) Object.assign(patch, found?.coverId ? { coverId: found.coverId, olWork: found.olWork } : { coverCheckedAt: now() });
+            if (found?.pages && !book.pages) patch.pages = found.pages;
+            if (needsSubjects(book, now())) Object.assign(patch, { subjects: found?.subjects ?? [], subjectsAt: now() });
+            if (found?.olWork && !book.olWork) patch.olWork = found.olWork;
+            batch.push([book.id, patch]);
           }
         } catch (e) {
           if (e instanceof OfflineError) { goneOffline(); break; }
@@ -363,7 +369,7 @@ export function mountApp(root, opts = {}) {
     } finally {
       flushBatch();
       w.running = false;
-      w.remaining = state.data.books.filter((b) => !b.deleted && !tried.has(b.id) && (b.needsLookup || needsCover(b, now()))).length;
+      w.remaining = state.data.books.filter((b) => !b.deleted && !tried.has(b.id) && (b.needsLookup || needsCover(b, now()) || needsSubjects(b, now()))).length;
       render();
     }
   }
@@ -403,19 +409,22 @@ export function mountApp(root, opts = {}) {
     edit({ books, collections: created ? [collection] : [] }, { message: `Added ${plural(books.length, 'book')} to ${collection.name}.` });
   }
 
-  function addBooks(candidates, status, { message = true, also = [] } = {}) {
+  // `also`: other books changed in the same edit; `extra`: other records (swipes), so one Undo covers all.
+  function addBooks(candidates, status, { message = true, also = [], extra = {} } = {}) {
     let end = queueEndRank(state.data.books);
     const books = [];
     const reads = [];
     for (const c of candidates) {
-      const fresh = createBook({ ...c, status: 'none' }, { now: now() });
+      // Open Library results carry their subjects, so the background look-up can skip them.
+      const checked = Array.isArray(c.subjects) && !c.subjectsAt ? { subjectsAt: now() } : {};
+      const fresh = createBook({ ...c, ...checked, status: 'none' }, { now: now() });
       const change = statusChange(fresh, [], status, today(), now(), { endRank: end });
       if (status === 'want') end = rankBetween(end, '');
       books.push(change.book);
       reads.push(...change.reads);
     }
     const said = message === true ? (books.length === 1 ? `Added ${books[0].title || 'the book'}.` : `Added ${plural(books.length, 'book')}.`) : message || null;
-    edit({ books: [...books, ...also], reads }, { message: said });
+    edit({ ...extra, books: [...books, ...also], reads }, { message: said });
     startWorkers();
     return books;
   }

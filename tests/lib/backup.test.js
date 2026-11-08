@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createBook, updateBook } from '../../src/lib/book.js';
-import { createNote, createProgress, createCollection } from '../../src/lib/records.js';
+import { createNote, createProgress, createCollection, createSwipe } from '../../src/lib/records.js';
 import { createRead } from '../../src/lib/reads.js';
 import { emptyData } from '../../src/lib/merge.js';
 import { exportData, parseBackup, backupFilename, summarize, backupDue, FORMAT, VERSION } from '../../src/lib/backup.js';
@@ -14,7 +14,8 @@ const data = {
   progress: [createProgress({ bookId: 'b1', page: 12 }, { now: T, id: 'p1' })],
   collections: [createCollection({ name: 'Sci-fi', rank: 'i' }, { now: T, id: 'c1' })],
   reads: [createRead({ bookId: 'b1', finished: '2026-03-01' }, { now: T, id: 'r1' })],
-  settings: { cats: 'subtle', goals: { 2026: { books: 30, pages: null } }, updatedAt: T },
+  swipes: [createSwipe({ work: '/works/OL1W', title: 'Gone Girl', verdict: 'no', features: ['s:thrillers'] }, { now: T })],
+  settings: { cats: 'subtle', goals: { 2026: { books: 30, pages: null } }, mutedLanes: ['s:thrillers'], updatedAt: T },
 };
 
 describe('backup round trip', () => {
@@ -40,7 +41,15 @@ describe('backup round trip', () => {
     expect(parsed.data.books[0].finished).toBeUndefined();
   });
 
-  it('is at version 2', () => expect(VERSION).toBe(2));
+  it('is at version 3', () => expect(VERSION).toBe(3));
+
+  it('reads version 2 backups (0.4 and 0.5), which have no swipes', () => {
+    const { swipes, ...v2 } = exportData(data, T);
+    const parsed = parseBackup(JSON.stringify({ ...v2, version: 2 }));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data.swipes).toEqual([]);
+    expect(parsed.data.reads).toHaveLength(1);
+  });
 
   it('splits Goodreads series suffixes off titles saved before 0.5', () => {
     const { seriesName, seriesNumber, ...old } = createBook({ title: 'Mort (Discworld, #4)' }, { now: T, id: 'm' });
@@ -51,7 +60,7 @@ describe('backup round trip', () => {
   it('reads backups made before goals existed', () => {
     const { settings, ...rest } = exportData(data, T);
     const parsed = parseBackup(JSON.stringify({ ...rest, settings: { cats: 'off', updatedAt: T } }));
-    expect(parsed.data.settings).toEqual({ cats: 'off', goals: {}, updatedAt: T });
+    expect(parsed.data.settings).toEqual({ cats: 'off', goals: {}, mutedLanes: [], updatedAt: T });
   });
 });
 

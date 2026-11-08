@@ -131,6 +131,16 @@ describe('covers', () => {
     expect(fetch.calls).toHaveLength(2);
   });
 
+  it('looks up subjects for books that already have covers, once', async () => {
+    const { fakeFetch } = await import('./helpers.js');
+    const fetch = fakeFetch([['title=', { docs: [{ key: '/works/W', subject: ['Deserts', 'Accessible book'], place: ['Arrakis'] }] }]]);
+    const t = await mount({ fetch, books: [book({ title: 'Dune', coverId: 3 })] });
+    await t.app.actions.runWorkers();
+    expect(t.live()[0]).toMatchObject({ subjects: ['deserts', 'arrakis'], subjectsAt: t.clock.now(), coverId: 3 });
+    await t.app.actions.runWorkers();
+    expect(fetch.calls).toHaveLength(1);
+  });
+
   it('fills a missing page count with the cover, never replacing one', async () => {
     const { fakeFetch } = await import('./helpers.js');
     const fetch = fakeFetch([['title=', { docs: [{ key: '/works/W', cover_i: 7, number_of_pages_median: 300 }] }]]);
