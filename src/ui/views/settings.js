@@ -7,7 +7,7 @@ import { formatDate, dayKey } from '../../lib/dates.js';
 import { needsCover } from '../../lib/lookup.js';
 
 const when = (ts, now) => `${formatDate(dayKey(ts), now)} at ${new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
-const REASONS = { daily: 'Daily copy', import: 'Before an import', delete: 'Before a delete', restore: 'Before a restore', merge: 'Before merging a backup', manual: 'Saved by hand' };
+const REASONS = { daily: 'Daily copy', import: 'Before an import', delete: 'Before a delete', restore: 'Before a restore', merge: 'Before merging a backup', manual: 'Saved by hand', dismissed: 'Before clearing Not interested' };
 
 const row = (label, detail, onclick, cls = '') => h('button', { type: 'button', class: `row ${cls}`.trim(), onclick },
   h('span', { class: 'row-text' }, h('span', { class: 'row-label' }, label), detail ? h('span', { class: 'row-detail' }, detail) : null),
@@ -17,6 +17,7 @@ export function settingsView({ state, actions, env, now }) {
   const t = now();
   const live = state.data.books.filter((b) => !b.deleted);
   const deleted = state.data.books.filter((b) => b.deleted).length;
+  const dismissed = state.data.swipes.filter((x) => !x.deleted && x.verdict === 'no').length;
   const missingCovers = live.filter((b) => needsCover(b, t)).length;
   const last = state.meta.lastExport;
   return h('section', { class: 'settings-view' },
@@ -34,7 +35,8 @@ export function settingsView({ state, actions, env, now }) {
 
     h('section', { class: 'card rows' },
       row('Safety copies', 'Daily copies kept on this device', () => actions.go('/snapshots')),
-      row('Recently deleted', deleted ? plural(deleted, 'book') : 'Nothing', () => actions.go('/deleted'))),
+      row('Recently deleted', deleted ? plural(deleted, 'book') : 'Nothing', () => actions.go('/deleted')),
+      row('Not interested', dismissed ? plural(dismissed, 'book') : 'Nothing', () => actions.go('/dismissed'))),
 
     h('section', { class: 'card' },
       h('h2', {}, 'Goodreads'),
@@ -91,4 +93,19 @@ export function deletedView({ state, actions }) {
       h('span', { class: 'db-text' }, h('span', { class: 'db-title' }, displayTitle(b)), h('span', { class: 'db-author' }, b.authors.join(', '))),
       h('button', { type: 'button', class: 'btn small restore-book', onclick: () => actions.restoreBooks([b.id]) }, 'Restore'))))
       : h('div', { class: 'empty' }, mascot('done'), h('p', {}, 'Nothing deleted.')));
+}
+
+// Books passed on in Discover: hidden for a year, counting for less as they age (taste.js).
+export function dismissedView({ state, actions, now }) {
+  const list = state.data.swipes.filter((s) => !s.deleted && s.verdict === 'no').sort((a, b) => b.at - a.at);
+  return h('section', { class: 'dismissed-view' },
+    h('div', { class: 'detail-top' }, h('button', { type: 'button', class: 'icon-btn back', 'aria-label': 'Back', html: ICONS.back, onclick: () => actions.go('/settings') })),
+    h('h1', {}, 'Not interested'),
+    h('p', { class: 'muted' }, 'Books you passed on in Discover. Each stays hidden for a year and counts for less as it ages. Restore one to let it turn up again.'),
+    list.length ? h('button', { type: 'button', class: 'btn small danger clear-dismissed', onclick: () => actions.clearDismissed() }, `Clear all ${list.length}`) : null,
+    list.length ? h('ul', { class: 'deleted dismissed' }, list.slice(0, 500).map((s) => h('li', { class: 'deleted-book dismissed-item' },
+      h('span', { class: 'db-text' }, h('span', { class: 'db-title di-title' }, s.title || 'Untitled'),
+        h('span', { class: 'db-author' }, [s.authors.join(', '), `passed on ${formatDate(dayKey(s.at), now())}`].filter(Boolean).join(' · '))),
+      h('button', { type: 'button', class: 'btn small restore', onclick: () => actions.restoreSwipe(s.id) }, 'Restore'))))
+      : h('div', { class: 'empty' }, mascot('done'), h('p', {}, 'Nothing here. Books you pass on in Discover show up here.')));
 }

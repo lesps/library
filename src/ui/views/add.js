@@ -6,6 +6,7 @@ import { STATUS_LABELS } from '../../lib/book.js';
 import { findDuplicate } from '../../lib/library.js';
 import { isbnFromQuery, cleanIsbn, toIsbn13, isIsbn10, formatIsbn } from '../../lib/isbn.js';
 import { seriesLabel } from '../../lib/series.js';
+import { addModes } from './discover.js';
 
 function manualDialog(ctx) {
   const { state, actions } = ctx;
@@ -92,6 +93,7 @@ export function addView(ctx) {
   }
 
   return h('section', { class: 'add-view' },
+    addModes(actions, 'search'),
     h('header', { class: 'top' }, h('h1', {}, 'Add books')),
     online ? null : h('div', { class: 'offline-note' }, mascot('offline', 'small'),
       h('p', {}, h('strong', {}, 'You’re offline. '), 'Searching needs the internet. You can still add a book by hand, or save an ISBN to look up later.')),

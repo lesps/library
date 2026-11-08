@@ -16,14 +16,14 @@ import { emptyData, mergeData, KINDS } from '../lib/merge.js';
 import { applyEdits, restoreEdits, snapshotsToKeep, snapshotDue, dataVersion } from '../lib/snapshots.js';
 import { captureBefore, undoEdits } from '../lib/undo.js';
 import { createBook, updateBook, STATUS_LABELS } from '../lib/book.js';
-import { statusChange, createRead, sanitizeRead } from '../lib/reads.js';
-import { createNote, createProgress, createCollection, sanitizeNote, touch, findCollection } from '../lib/records.js';
+import { statusChange, createRead, sanitizeRead, reconcileReads } from '../lib/reads.js';
+import { createNote, createProgress, createCollection, sanitizeNote, touch, findCollection, createSwipe } from '../lib/records.js';
 import { toReadQueue, queueEndRank, findDuplicate } from '../lib/library.js';
 import { rankBetween, spreadRanks } from '../lib/rank.js';
 import { dayKey } from '../lib/dates.js';
 import { exportData, backupFilename, parseBackup, backupDue } from '../lib/backup.js';
 import { parseGoodreads, planImport, goodreadsCsv } from '../lib/goodreads.js';
-import { olSearchUrl, parseOlSearch, googleSearchUrl, parseGoogle, coverLookupUrl, parseBookLookup, needsCover, needsSubjects } from '../lib/lookup.js';
+import { olSearchUrl, parseOlSearch, googleSearchUrl, parseGoogle, coverLookupUrl, parseBookLookup, needsCover, needsSubjects, coverSrc } from '../lib/lookup.js';
 import { isbnFromQuery } from '../lib/isbn.js';
 import { parseChangelog, notesSince, releasesUpTo } from '../lib/changelog.js';
 import { libraryView } from './views/library.js';
@@ -35,7 +35,11 @@ import { addView } from './views/add.js';
 import { collectionsView } from './views/collections.js';
 import { seriesView } from './views/series.js';
 import { seriesKey, seriesList, seriesLabel, booksInSeries, wdFindSeriesUrl, parseFoundSeries, pickSeries, wdMembersUrl, parseMembers, matchMember } from '../lib/series.js';
-import { settingsView, snapshotsView, deletedView } from './views/settings.js';
+import { settingsView, snapshotsView, deletedView, dismissedView } from './views/settings.js';
+import { discoverView, lanesView } from './views/discover.js';
+import { findLanes, vectorize, featuresFromKeys, blend } from '../lib/taste.js';
+import { laneQueries, wildcardQuery, searchUrl, workUrl, nextQuery, parseDeal, parseWorkDescription, rankPool, deal, stillFresh, cardToBook, DEAL_SIZE, DECK_LOW, PAGE_SIZE, WILDCARD } from '../lib/discover.js';
+import { rng } from '../lib/cats.js';
 import { importView } from './views/import.js';
 import { VERSION, CHANGELOG } from '../version.js';
 
@@ -46,7 +50,7 @@ export const TABS = [
   { view: 'collections', label: 'Collections', icon: 'collections' },
   { view: 'settings', label: 'Settings', icon: 'settings' },
 ];
-const VIEWS = { library: libraryView, book: bookView, reading: readingView, stats: statsView, add: addView, collections: collectionsView, series: seriesView, settings: settingsView, import: importView, snapshots: snapshotsView, deleted: deletedView };
+const VIEWS = { library: libraryView, book: bookView, reading: readingView, stats: statsView, add: addView, collections: collectionsView, series: seriesView, discover: discoverView, lanes: lanesView, dismissed: dismissedView, settings: settingsView, import: importView, snapshots: snapshotsView, deleted: deletedView };
 const PREF_KEYS = ['layout', 'sort', 'status', 'collection'];
 const DAY = 86_400_000;
 const RETRY_MS = 15_000;
@@ -102,6 +106,9 @@ export function mountApp(root, opts = {}) {
     imp: { phase: 'pick' },
     snapshots: null,
     series: new Map(), // series key → { phase, id (Wikidata), members, picked }: looking up the rest
+    // Discover: the deck (saved on the device), paging state per search, candidate pools per lane
+    // (memory only), the card turned over for details, and the cards looked at this session.
+    discover: { deck: [], cursors: {}, exhausted: [], pools: new Map(), dealing: false, details: null, peeked: new Set(), thin: [], error: '' },
     statsYear: null,
     statsShowAll: false,
     workers: { remaining: 0, running: false, pausedUntil: 0 },
@@ -159,7 +166,7 @@ export function mountApp(root, opts = {}) {
     const view = state.loading ? h('div', { class: 'loading' }, 'Opening your library…') : VIEWS[state.route.view](ctx);
     main.dataset.view = state.route.view;
     main.replaceChildren(...banners(), view);
-    const tab = { book: 'library', import: 'library', stats: 'reading', series: 'collections', snapshots: 'settings', deleted: 'settings' }[state.route.view] ?? state.route.view;
+    const tab = { book: 'library', import: 'library', stats: 'reading', series: 'collections', discover: 'add', lanes: 'add', snapshots: 'settings', deleted: 'settings', dismissed: 'settings' }[state.route.view] ?? state.route.view;
     for (const b of tabs.children) {
       if (b.dataset.view === tab) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
@@ -203,12 +210,14 @@ export function mountApp(root, opts = {}) {
       win.history[replace ? 'replaceState' : 'pushState'](null, '', `#${routePath(route)}`);
     } catch { /* sandboxed */ }
     render();
+    if (route.view === 'discover') ensureDeck();
   }
 
   listen(win, 'popstate', () => {
     state.route = parseRoute(win.location.hash);
     state.selection = null;
     render();
+    if (state.route.view === 'discover') ensureDeck();
   });
 
   // ——— persistence ———
@@ -410,7 +419,7 @@ export function mountApp(root, opts = {}) {
   }
 
   // `also`: other books changed in the same edit; `extra`: other records (swipes), so one Undo covers all.
-  function addBooks(candidates, status, { message = true, also = [], extra = {} } = {}) {
+  function addBooks(candidates, status, { message = true, also = [], extra = {}, then } = {}) {
     let end = queueEndRank(state.data.books);
     const books = [];
     const reads = [];
@@ -424,9 +433,118 @@ export function mountApp(root, opts = {}) {
       reads.push(...change.reads);
     }
     const said = message === true ? (books.length === 1 ? `Added ${books[0].title || 'the book'}.` : `Added ${plural(books.length, 'book')}.`) : message || null;
-    edit({ ...extra, books: [...books, ...also], reads }, { message: said });
+    edit({ ...extra, books: [...books, ...also], reads }, { message: said, then });
     startWorkers();
     return books;
+  }
+
+  // ——— Discover ———
+  // Lanes are recomputed only when the library, reads, swipes, collections or settings change.
+  let tasteMemo = null;
+  function taste() {
+    const d = state.data;
+    const key = [d.books, d.reads, d.swipes, d.collections, d.settings];
+    if (!tasteMemo || tasteMemo.key.some((x, i) => x !== key[i])) {
+      tasteMemo = { key, value: findLanes(d.books, { reads: d.reads, swipes: d.swipes, collections: d.collections, now: now(), muted: d.settings.mutedLanes }) };
+    }
+    return tasteMemo.value;
+  }
+
+  const disc = state.discover;
+  const freshDeck = () => stillFresh(disc.deck, { books: state.data.books, swipes: state.data.swipes, now: now() });
+  const persistDeck = () => setMeta({ discover: { deck: disc.deck, cursors: disc.cursors, exhausted: disc.exhausted } });
+  const dealCtx = (t, r) => ({ taste: t, books: state.data.books, swipes: state.data.swipes, deck: disc.deck, now: now(), rng: r });
+
+  async function fetchPage(key, next, priority) {
+    const found = parseDeal(await net.get(searchUrl(next.query, next.page), { priority }));
+    const pool = disc.pools.get(key) ?? [];
+    const known = new Set(pool.map((c) => c.work));
+    const fresh = found.filter((c) => !known.has(c.work));
+    disc.pools.set(key, [...pool, ...fresh]);
+    disc.cursors[next.query.id] = next.page + 1;
+    if ((found.length < PAGE_SIZE || !fresh.length) && !disc.exhausted.includes(next.query.id)) disc.exhausted.push(next.query.id);
+    return fresh.length;
+  }
+
+  // Background: descriptions for the next few cards, so turning them over works offline.
+  async function prefetchDescriptions(n = 3) {
+    for (const c of disc.deck.slice(0, n)) {
+      if (c.description || c.descriptionChecked || !state.online) continue;
+      try {
+        c.description = parseWorkDescription(await net.get(workUrl(c.work), { priority: 'background' }));
+        c.descriptionChecked = true;
+      } catch (e) {
+        if (e instanceof OfflineError) { goneOffline(); return; }
+      }
+    }
+    persistDeck();
+    if (state.route.view === 'discover') render();
+  }
+
+  // Deals up to `count` cards. Fetches a page for each lane whose pool is running low, plus a
+  // wildcard search, adding a couple of cards after each answer so the deck grows while the rest
+  // arrive; at most one search per lane and four more per deal, since Open Library is asked about
+  // once a second. Cards are dealt by Thompson sampling (discover.js). With `lane`, deals only
+  // from that lane, to the front of the deck.
+  async function dealCards({ lane = null, priority = 'background', count = DEAL_SIZE } = {}) {
+    if (disc.dealing || !state.online) return;
+    const base = taste();
+    const targets = lane ? base.lanes.filter((l) => l.key === lane).map((l) => ({ ...l, muted: false })) : base.lanes.filter((l) => !l.muted);
+    if (!targets.length) return;
+    const t = lane ? { ...base, lanes: targets } : base;
+    const r = rng((now() % 2_147_483_646) + 1);
+    disc.dealing = true;
+    disc.error = '';
+    render();
+    const fresh = [];
+    const add = (n) => {
+      const pools = lane ? new Map([[lane, disc.pools.get(lane) ?? []]]) : disc.pools;
+      const cards = deal(pools, Math.min(n, count - fresh.length), dealCtx(t, r));
+      fresh.push(...cards);
+      disc.deck = lane ? [...cards, ...disc.deck] : [...disc.deck, ...cards];
+      if (cards.length) render();
+    };
+    let budget = targets.length + 4;
+    try {
+      if (lane) disc.deck = [...disc.deck.filter((c) => c.lane?.key === lane), ...disc.deck.filter((c) => c.lane?.key !== lane)];
+      add(count); // whatever the pools already hold
+      for (let round = 0; round < 3 && fresh.length < count && budget > 0; round++) {
+        let fetched = false;
+        for (const l of targets) {
+          if (budget <= 0 || fresh.length >= count) break;
+          if (rankPool(disc.pools.get(l.key), l.centroid, dealCtx(t, r)).length >= 4) continue;
+          const next = nextQuery(laneQueries(l), disc.cursors, disc.exhausted);
+          if (!next) continue;
+          await fetchPage(l.key, next, priority);
+          budget -= 1;
+          fetched = true;
+          add(2);
+        }
+        if (!lane && round === 0 && budget > 0 && rankPool(disc.pools.get(WILDCARD), t.profile, dealCtx(t, r)).length < 2) {
+          const wq = wildcardQuery(t, r);
+          const next = wq && nextQuery([wq], disc.cursors, disc.exhausted);
+          if (next) { await fetchPage(WILDCARD, next, priority); budget -= 1; fetched = true; }
+        }
+        add(count);
+        if (!fetched) break;
+      }
+      disc.thin = targets.filter((l) => !nextQuery(laneQueries(l), disc.cursors, disc.exhausted) && !rankPool(disc.pools.get(l.key), l.centroid, dealCtx(t, r)).length).map((l) => l.label);
+    } catch (e) {
+      if (e instanceof OfflineError) goneOffline();
+      else disc.error = e instanceof HttpError && (e.status === 429 || e.status >= 500) ? 'Open Library is busy. Try again in a few minutes.' : 'Open Library didn’t answer. Try again in a moment.';
+    } finally {
+      disc.dealing = false;
+      persistDeck();
+      for (const c of fresh) if (c.coverId && win.Image) new win.Image().src = coverSrc(c, 'L'); // cached for offline
+      render();
+    }
+    prefetchDescriptions();
+  }
+
+  function ensureDeck() {
+    if (!state.online || disc.dealing || !taste().lanes.length) return;
+    const n = freshDeck().length;
+    if (n < DECK_LOW) dealCards({ priority: n ? 'background' : 'user' });
   }
 
   // ——— series on Wikidata ———
@@ -745,6 +863,122 @@ export function mountApp(root, opts = {}) {
       });
     },
 
+    // Discover
+    taste,
+    deck: freshDeck,
+    dealCards,
+    needingSubjects: () => state.data.books.filter((b) => needsSubjects(b, now())).length,
+    // Each swipe is one undoable edit: the verdict, plus the book for "want" and "read". Undo puts
+    // the card back on top. "Already read" gets a read with no date, so it counts as read without
+    // landing in this year's numbers (like a Goodreads import's undated reads).
+    swipe(work, verdict) {
+      const card = disc.deck.find((c) => c.work === work);
+      if (!card) return;
+      const s = createSwipe({ work, title: card.title, authors: card.authors, verdict, features: card.features, peeked: disc.peeked.has(work) }, { now: now() });
+      disc.deck = disc.deck.filter((c) => c !== card);
+      disc.details = null;
+      persistDeck();
+      const then = () => {
+        if (!disc.deck.some((c) => c.work === work)) disc.deck.unshift(card);
+        persistDeck();
+        render();
+      };
+      if (verdict === 'no') edit({ swipes: [s] }, { message: 'Passed.', then });
+      else if (verdict === 'want') addBooks([cardToBook(card, now())], 'want', { extra: { swipes: [s] }, message: 'Added to Want to read.', then });
+      else {
+        const b = createBook({ ...cardToBook(card, now()), status: 'read' }, { now: now() });
+        edit({ books: [b], reads: reconcileReads(b.id, [], { count: 1 }, now()), swipes: [s] }, { message: 'Marked as read.', then });
+        startWorkers();
+      }
+      ensureDeck();
+    },
+    async openDetails(work) {
+      const card = disc.deck.find((c) => c.work === work);
+      if (!card) return;
+      disc.details = work;
+      disc.peeked.add(work);
+      render();
+      if (card.description || card.descriptionChecked || !state.online) return;
+      try {
+        card.description = parseWorkDescription(await net.get(workUrl(work), { priority: 'user' }));
+        card.descriptionChecked = true;
+        persistDeck();
+        render();
+      } catch (e) {
+        if (e instanceof OfflineError) goneOffline();
+      }
+    },
+    closeDetails() {
+      disc.details = null;
+      render();
+    },
+    // Searches from the card's own subjects and author, ranked toward the card (half its lane,
+    // half the card), and slots the best few in right after it.
+    async moreLike(work) {
+      const card = disc.deck.find((c) => c.work === work);
+      if (!card || !state.online) return;
+      disc.details = null;
+      disc.dealing = true;
+      render();
+      const t = taste();
+      const lane = t.lanes.find((l) => l.key === card.lane?.key);
+      const target = blend(lane?.centroid ?? t.profile, vectorize(featuresFromKeys(card.features), t.idf));
+      const subs = card.subjects.slice(0, 2).map((x) => `"${x.replace(/"/g, '')}"`);
+      const queries = [
+        subs.length === 2 ? `subject:${subs[0]} AND subject:${subs[1]}` : subs[0] ? `subject:${subs[0]}` : '',
+        card.authors[0] ? `author:"${card.authors[0].replace(/"/g, '')}"` : '',
+      ].filter(Boolean).map((q) => ({ q, sort: 'readinglog', id: `like|${q}` }));
+      const key = `like:${work}`;
+      try {
+        for (const q of queries) {
+          const next = nextQuery([q], disc.cursors, disc.exhausted);
+          if (next) await fetchPage(key, next, 'user');
+        }
+        const cards = rankPool(disc.pools.get(key), target, dealCtx(t, null)).slice(0, 5).map((c) => ({ ...c, lane: card.lane }));
+        const at = disc.deck.findIndex((c) => c.work === work);
+        disc.deck.splice(at + 1, 0, ...cards);
+        toast(cards.length ? `${plural(cards.length, 'more book')} like ${card.title} up next.` : 'Nothing new like this one right now.');
+      } catch (e) {
+        if (e instanceof OfflineError) goneOffline();
+        else toast('Open Library didn’t answer. Try again in a moment.');
+      } finally {
+        disc.dealing = false;
+        persistDeck();
+        render();
+      }
+    },
+    dealFromLane(key) {
+      go('/discover');
+      dealCards({ lane: key, priority: 'user', count: 8 });
+    },
+    muteLane(key, muted) {
+      const s = state.data.settings;
+      const mutedLanes = muted ? [...new Set([...s.mutedLanes, key])] : s.mutedLanes.filter((k) => k !== key);
+      if (muted) {
+        disc.deck = disc.deck.filter((c) => c.lane?.key !== key);
+        persistDeck();
+      }
+      edit({ settings: { ...s, mutedLanes, updatedAt: now() } }, { undoable: false });
+    },
+    restoreSwipe(id) {
+      const s = state.data.swipes.find((x) => x.id === id);
+      if (s) edit({ swipes: [{ ...s, deleted: true, updatedAt: now() }] }, { message: `${s.title || 'That book'} can turn up again.` });
+    },
+    clearDismissed() {
+      const list = state.data.swipes.filter((s) => !s.deleted && s.verdict === 'no');
+      if (!list.length) return;
+      confirmDialog({
+        title: `Clear ${plural(list.length, 'book')}?`,
+        body: 'Every book you passed on can be dealt again, and Discover forgets what it learned from them. A safety copy is saved first.',
+        ok: 'Clear all',
+        danger: true,
+        onConfirm: async () => {
+          await snapshot('dismissed');
+          edit({ swipes: list.map((s) => ({ ...s, deleted: true, updatedAt: now() })) }, { message: `Cleared ${plural(list.length, 'book')}.` });
+        },
+      });
+    },
+
     // series
     seriesLookup: (name) => state.series.get(seriesKey(name)) ?? null,
     openSeries(name, { find = false } = {}) {
@@ -1039,6 +1273,12 @@ export function mountApp(root, opts = {}) {
     const { data, meta } = await store.loadAll();
     state.data = data;
     state.meta = meta;
+    const saved = meta.discover;
+    if (saved && typeof saved === 'object') {
+      disc.deck = Array.isArray(saved.deck) ? saved.deck.filter((c) => typeof c?.work === 'string' && typeof c.title === 'string') : [];
+      disc.cursors = saved.cursors && typeof saved.cursors === 'object' ? saved.cursors : {};
+      disc.exhausted = Array.isArray(saved.exhausted) ? saved.exhausted : [];
+    }
     for (const k of PREF_KEYS) if (meta.prefs?.[k] != null) state.library[k] = meta.prefs[k];
     if (state.library.collection !== 'all' && state.library.collection !== 'none' && !data.collections.some((c) => c.id === state.library.collection && !c.deleted)) state.library.collection = 'all';
     state.loading = false;
@@ -1046,9 +1286,10 @@ export function mountApp(root, opts = {}) {
     announceUpdate();
     dailySnapshot();
     startWorkers();
+    if (state.route.view === 'discover') ensureDeck();
   }
 
-  listen(win, 'online', () => { state.online = isOnline(); render(); startWorkers(); });
+  listen(win, 'online', () => { state.online = isOnline(); render(); startWorkers(); if (state.route.view === 'discover') ensureDeck(); });
   listen(win, 'offline', () => { state.online = false; render(); });
   listen(win.document, 'visibilitychange', () => {
     if (win.document.visibilityState === 'hidden') { drain(); dailySnapshot(); }

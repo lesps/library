@@ -132,6 +132,9 @@ function centroid(items) {
   return c;
 }
 
+// Halfway between two vectors' directions: a lane nudged toward one card, for "More like this".
+export const blend = (a, b) => centroid([{ v: a, w: 1 }, { v: b, w: 1 }]);
+
 export const swipeDecay = (s, now) => 0.5 ** (Math.max(0, now - s.at) / YEAR);
 
 // ——— clustering ———
@@ -213,7 +216,9 @@ export function findLanes(books, { reads = [], swipes = [], collections = [], no
   const noes = activeSwipes.filter((s) => s.verdict === 'no').map((s) => ({ v: vectorize(featuresFromKeys(s.features), idf), w: swipeDecay(s, now), s }));
   const anti = centroid([...all.filter((it) => it.w < 0).map((it) => ({ v: it.v, w: -it.w })), ...noes.map((x) => ({ v: x.v, w: x.w * 0.7 }))]);
   const profile = centroid(liked);
-  if (liked.length < MIN_BOOKS) return { lanes: [], profile, anti, idf, books: N };
+  const vectors = new Map(liked.map((it) => [it.b.id, it.v]));
+  const weights = new Map(liked.map((it) => [it.b.id, it.w]));
+  if (liked.length < MIN_BOOKS) return { lanes: [], profile, anti, idf, vectors, weights, books: N };
 
   const pool = liked.length > CLUSTER_CAP ? [...liked].sort((x, y) => y.w - x.w).slice(0, CLUSTER_CAP) : liked;
   // Groups of fewer than 3 books aren't lanes; the biggest twelve (by liking) are.
@@ -275,7 +280,7 @@ export function findLanes(books, { reads = [], swipes = [], collections = [], no
     if (l.avoid) l.centroid = centroid([{ v: l.centroid, w: 1 }, ...l.avoid.map((x) => ({ v: x.v, w: -x.w }))]);
     delete l.avoid;
   }
-  return { lanes, profile, anti, idf, books: N };
+  return { lanes, profile, anti, idf, vectors, weights, books: N };
 }
 
 // ——— sampling ———

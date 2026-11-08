@@ -2,6 +2,20 @@
 
 Each release's bullets are shown in the app's "What's new" note, so they're written for the person using Catalog. Notes for developers go under a "### Developer" heading, which the app skips.
 
+## 0.6.0 — 2026-11-08
+
+- Discover: swipe through book recommendations on the Add tab. Right adds a book to Want to read, left passes, and Already read marks it read. Tap or swipe up to turn a card over for its description and why it was picked. Arrow keys work too.
+- Recommendations come from your lanes: groups of the books you've liked, found from your authors, your shelves and each book's subjects. See them under Your lanes, deal from one lane, or mute one.
+- Discover learns as you swipe: lanes you keep saying yes to deal more often, and books like the ones you pass on show up less. A wildcard every few cards keeps things from getting samey.
+- More like this, on a card's details, deals a few more like that book right after it.
+- The deck tops itself up while you're online and is kept for swiping offline.
+- Changed your mind? Settings → Not interested lists the books you passed on, to restore one or clear them all.
+- Catalog now fetches each book's subjects from Open Library in the background, along with its cover.
+
+### Developer
+
+- `src/lib/taste.js` (features, TF-IDF, average-linkage lanes, Rocchio and Thompson sampling, all recomputed from library + swipes), `src/lib/discover.js`, `views/discover.js`; swipe records (DB v3, backup v3); book fields `subjects`, `subjectsAt`; `settings.mutedLanes`; the deck in `meta.discover`.
+
 ## 0.5.0 — 2026-11-07
 
 - Series: books in a series now know it. Your Goodreads series come over from the titles ("The Way of Kings (The Stormlight Archive, #1)" becomes The Way of Kings, The Stormlight Archive #1), including books you've already imported.

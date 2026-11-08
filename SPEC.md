@@ -13,7 +13,7 @@ All records live in IndexedDB (database `catalog`, schema version 2). Memory hol
   "id": "uuid", "title": "Dune", "subtitle": "", "authors": ["Frank Herbert"], "authorSort": "Herbert, Frank",
   "isbn10": "", "isbn13": "9780441013593", "publisher": "Ace", "year": 1990, "originalYear": 1965,
   "pages": 412, "binding": "Paperback", "coverId": 12345, "coverUrl": "", "coverCheckedAt": 0, "olWork": "/works/OL893415W",
-  "goodreadsId": "234225", "seriesName": "Dune", "seriesNumber": "1",
+  "goodreadsId": "234225", "seriesName": "Dune", "seriesNumber": "1", "subjects": ["science fiction", "arrakis"], "subjectsAt": 1762500000000,
   "status": "read", "rating": 5, "review": "", "collectionIds": ["uuid"],
   "queueRank": "", "owned": true,
   "needsLookup": false, "deleted": false,
@@ -25,6 +25,7 @@ All records live in IndexedDB (database `catalog`, schema version 2). Memory hol
 - When a book was read lives in its reads (below), not on the book. Status changes carry their reads: entering `reading` opens a read started today (unless one is open, so reading a read book again is a reread); entering `read` closes the open read with today's date, or adds a read finished today; entering `want` or `none` deletes an unfinished read (finished reads are kept); entering `want` also puts the book at the end of the queue.
 - Books saved before 0.4 also carry `started`, `finished` and `readCount`. They're no longer book fields: the database upgrade and the backup reader turn them into reads (see Reads), and they're dropped the next time the book is saved.
 - `collectionIds`: any number of collections.
+- `subjects`: up to 20 cleaned Open Library subjects, places and times (see Discover), for Discover. `subjectsAt`: when they were last looked up; a book with none found is tried again after 30 days.
 - `seriesName`, `seriesNumber`: the series and the book's place in it. The number is text ("1", "2.5" for a novella between 2 and 3, "1-3" for an omnibus) and sorts by its leading number. Books with the same series name (ignoring case and accents) form a series; see Series.
 - A title that still ends in a Goodreads series suffix ("Mort (Discworld, #4)", or "(Discworld #4)", or "(Discworld, #8; City Watch, #1)", which takes the first) on a book with no series has it split off whenever records are read: at launch, from a backup or from a safety copy. The split fields take the title's own `fieldAt` stamp rather than now, so devices that convert separately produce identical records; the stored record is rewritten the next time the book is saved.
 - `queueRank`: the book's place in the to-read queue (see Ordering). Only meaningful while `status` is `want`.
@@ -53,12 +54,14 @@ All records live in IndexedDB (database `catalog`, schema version 2). Memory hol
 { "id": "uuid", "bookId": "uuid", "readId": "uuid", "text": "Fear is the mind-killer.", "page": 8, "at": 1762500000000, "updatedAt": 1762500000000 }
 { "id": "uuid", "bookId": "uuid", "page": 120, "percent": null, "at": 1762500000000, "updatedAt": 1762500000000 }
 { "id": "uuid", "name": "Sci-fi", "rank": "i", "updatedAt": 1762500000000 }
+{ "id": "sw-OL81633W", "work": "/works/OL81633W", "title": "Kitchen", "authors": ["Banana Yoshimoto"], "verdict": "no", "features": ["a:banana yoshimoto", "s:japanese fiction"], "peeked": false, "at": 1762500000000, "updatedAt": 1762500000000 }
 ```
 
 - A note is non-empty text with an optional page. `readId` (optional) says which read it's about; without one, or if that read was deleted, it's about the book in general.
 - A progress record is a page or a percent (0–100), never both. The book's current position is its latest live record. With a page count it shows as a percentage; at 100% a "Mark as read" button appears.
 - Collection names are unique, ignoring case.
 - Deleting a collection removes it from its books; the books stay.
+- A **swipe** is a verdict on a book Discover dealt: `no` (Not for me), `want` (Want to read) or `read` (Already read). One per Open Library work (the id comes from the work), so swiping the same book on two devices merges to one verdict. `features` keeps the card's taste features, so what Discover learns can be recomputed from swipes alone; `peeked` says the card's details were opened first. Restoring or clearing a "not for me" marks the swipe deleted.
 
 ### Deletion
 
@@ -72,19 +75,19 @@ The to-read queue and the collection list are ordered by fractional ranks: base-
 
 Stored in the `meta` object store:
 
-- `settings`: `{ cats: 'lively' | 'subtle' | 'off', goals: { "2026": { books: 40, pages: 12000 } }, updatedAt }`. Travels with backups (merged whole on `updatedAt`, like any settings change). A goal may have books, pages or both; one with neither is removed. Backups from before goals existed read with `goals: {}`.
-- Device-only, never in backups: `prefs` (library layout, sort, status and collection filters), `lastExport`, `backupSnoozedUntil`, `seenVersion`.
+- `settings`: `{ cats: 'lively' | 'subtle' | 'off', goals: { "2026": { books: 40, pages: 12000 } }, mutedLanes: ["s:horror"], updatedAt }`. Travels with backups (merged whole on `updatedAt`, like any settings change). A goal may have books, pages or both; one with neither is removed. Backups from before goals existed read with `goals: {}`, and from before Discover with `mutedLanes: []`.
+- Device-only, never in backups: `prefs` (library layout, sort, status and collection filters), `lastExport`, `backupSnoozedUntil`, `seenVersion`, `discover` (`{ deck, cursors, exhausted }`: the dealt cards with everything needed to show them offline, and paging state per Open Library search).
 
 ### Storage
 
 | Store | Key | Holds |
 | --- | --- | --- |
-| `books`, `notes`, `progress`, `collections`, `reads` | `id` | the records above (`reads` since version 2) |
+| `books`, `notes`, `progress`, `collections`, `reads`, `swipes` | `id` | the records above (`reads` since version 2, `swipes` since 3) |
 | `meta` | name | settings and device values |
 | `snapshots` | `id` | `{ id, at, reason, version, counts }` |
 | `snapshotData` | `id` | `{ id, gz }` (gzipped JSON) or `{ id, json }` where compression isn't available |
 
-- Schema changes are appended as migration steps; released steps are never edited. Version 2 (0.4) adds the `reads` store and, inside the upgrade, turns every book's old read dates into reads (see Reads). Safety copies taken before the upgrade are converted the same way when read, so they still restore correctly.
+- Schema changes are appended as migration steps; released steps are never edited. Version 2 (0.4) adds the `reads` store and, inside the upgrade, turns every book's old read dates into reads (see Reads). Safety copies taken before the upgrade are converted the same way when read, so they still restore correctly. Version 3 (0.6) adds the `swipes` store.
 - When another tab opens a newer version, this tab closes its connection and shows "Catalog was updated in another tab. Reload."
 - If IndexedDB can't be opened (some private-browsing modes), the app runs from memory and Settings warns that nothing will be kept.
 - If a write fails (for example, the device is out of space), a banner says changes are not being saved and offers Try again and Export backup. The failed changes are kept in memory and retried every 15 seconds and when the app goes to the background.
@@ -96,7 +99,7 @@ Stored in the `meta` object store:
 Whole-library copies kept in IndexedDB on this device:
 
 - A daily copy, taken at launch, hourly while open, and when the app goes to the background — but only if the library changed since the last copy and none was taken today.
-- A copy before every import (`import`), bulk delete (`delete`), snapshot restore (`restore`) and backup merge (`merge`), and on request (`manual`).
+- A copy before every import (`import`), bulk delete (`delete`), snapshot restore (`restore`), backup merge (`merge`) and clearing Not interested (`dismissed`), and on request (`manual`).
 - Kept: the newest copy of each of the last 7 days; the newest of each week back to about 5 weeks; and the 5 newest event copies from the last 30 days. Everything else is deleted after each new copy.
 - **Restoring** turns the copy into ordinary edits stamped now: books and records go back to the copy's values, and anything created since is marked deleted. A restore therefore merges like any edit, and merging an older backup can't undo it.
 
@@ -105,13 +108,13 @@ Safety copies don't survive deleting the app or losing the device. Backup files 
 ## Backup files
 
 ```json
-{ "format": "catalog-library", "version": 2, "exported": "ISO time", "settings": {}, "books": [], "notes": [], "progress": [], "collections": [], "reads": [] }
+{ "format": "catalog-library", "version": 3, "exported": "ISO time", "settings": {}, "books": [], "notes": [], "progress": [], "collections": [], "reads": [], "swipes": [] }
 ```
 
 - Everything, deleted markers included. Saved through the share sheet where available (iOS: Save to Files), otherwise downloaded. Named `catalog-YYYY-MM-DD.json`.
-- **Merging** a backup: books merge field by field (the newer `fieldAt` wins; a tie keeps this device's value); notes, progress, collections and reads merge whole on `updatedAt`; settings on their own `updatedAt`. Before merging, a dialog reports the new, updated and deleted books, and a safety copy is taken.
+- **Merging** a backup: books merge field by field (the newer `fieldAt` wins; a tie keeps this device's value); notes, progress, collections, reads and swipes merge whole on `updatedAt`; settings on their own `updatedAt`. Before merging, a dialog reports the new, updated and deleted books, and a safety copy is taken.
 - Unreadable records are skipped and counted. A repeated id keeps the newest values.
-- Version 2 (0.4) added `reads`. Version 1 files (no `reads`, read dates on books) still read: their books' read dates become reads as described under Reads. Changing this format means bumping `VERSION` in `src/lib/backup.js` and keeping earlier versions readable.
+- Version 2 (0.4) added `reads`; version 3 (0.6) added `swipes` (earlier files read with none). Version 1 files (no `reads`, read dates on books) still read: their books' read dates become reads as described under Reads. Changing this format means bumping `VERSION` in `src/lib/backup.js` and keeping earlier versions readable.
 - **Reminder**: the library shows "Save a backup file" when there are books and changes since the last export, and the last export was never or at least 7 days ago. Later hides it for 3 days.
 
 ## Goodreads
@@ -149,7 +152,7 @@ Settings → Export Goodreads CSV writes Goodreads' exact columns (titles with t
 
 The only network use. Nothing about the library is sent anywhere except what's being looked up: the search text, an ISBN, a title and author, or an Open Library work id (to Wikidata, for series).
 
-- **Search** (Add tab): an ISBN (any punctuation, checksum-valid ISBN-10 or -13) searches by ISBN; anything else is a text search. Open Library first; Google Books when Open Library has nothing.
+- **Search** (Add tab, next to Discover): an ISBN (any punctuation, checksum-valid ISBN-10 or -13) searches by ISBN; anything else is a text search. Open Library first; Google Books when Open Library has nothing.
 - Open Library results carry the ISBN only when searching by it: a work has many editions, and the others aren't known to be this one.
 - Results already in the library (same ISBN-13, or same title and first author) say "In library" instead of Add.
 - **Add as**: the status new books get (default Want to read).
@@ -158,7 +161,7 @@ The only network use. Nothing about the library is sent anywhere except what's b
 - **Paste a list**: up to 200 lines, each an ISBN or title, looked up one by one. Matches are pre-ticked unless already in the library; Add adds the ticked ones.
 - **Requests** go one at a time, at most one per 1.1 seconds per host (Open Library allows anonymous browser clients about one a second). Searches the person is waiting for go ahead of background work.
 - **Background work**, while online: first, books saved for later (`needsLookup`) get their details; then books without a cover get one, newest first. Covers are looked up as Open Library cover ids and shown with `covers.openlibrary.org/b/id/{id}-{S|M|L}.jpg`. ISBN-keyed cover URLs are never used: Open Library limits them to 100 per 5 minutes per IP. A miss stamps `coverCheckedAt`; it's retried after 30 days, or straight away via the bulk action "Look for covers again". Results are saved in batches of six. A 403, 429 or 5xx pauses background work for 5 minutes.
-- **Background covers** also bring a page count (Open Library's median for the work) when the book has none.
+- **Background covers** also bring a page count (Open Library's median for the work) when the book has none, and the subjects Discover uses: the same request asks for the work's subjects, places and times. Books that already have a cover get their subjects the same way, once. Search results carry subjects too, so books added from search don't need the extra request.
 - **Series** (Wikidata): see Series. After one book is added from search or by hand while online, Catalog asks Wikidata which series it's in (background priority) and, if it finds one and the book has none, sets it.
 - **Offline**: detected from the browser's online/offline events and from any failed request. Search, Paste a list and "Fill in from the web" are disabled with a note saying why. "Save ISBN for later" adds a placeholder book whose details fill in when the app is next online.
 - **Scanner offline**: the decoder isn't part of the offline download; it's cached (`scanner` cache) the first time someone scans.
@@ -175,7 +178,8 @@ Bottom tabs: **Library**, **Reading**, **Add**, **Collections**, **Settings**.
 - **Reading stats** (`#/stats`, from "See reading stats" on the goal card): see Reading goals and stats.
 - **Add**: see Online look-ups; also links to the Goodreads import.
 - **Collections**: each with its book count and three covers; tap to open the library filtered to it. Rename, Move up/down, Delete. A link shows books in no collection. Below them, **Series**: every series with a book in the library, by name (ignoring leading articles), with its book count and covers; tap to open it.
-- **Settings**: Save backup file, Merge a backup; Safety copies; Recently deleted; Goodreads import and export; Cats (Lively, A few, None); Covers status and Fetch now; What's new; Restart now when an update is waiting; Install on iPhone help.
+- **Discover** (`#/discover`, the Add tab's other half), **Your lanes** (`#/lanes`), **Not interested** (`#/dismissed`, from Settings): see Discover.
+- **Settings**: Save backup file, Merge a backup; Safety copies; Recently deleted; Not interested; Goodreads import and export; Cats (Lively, A few, None); Covers status and Fetch now; What's new; Restart now when an update is waiting; Install on iPhone help.
 - **Undo**: bulk status and collection changes, and deleting books, notes or collections, show a toast with Undo. Undo writes the old values back as new edits.
 
 ## Series
@@ -189,6 +193,37 @@ A series is the books sharing a `seriesName`; there's no separate series record,
 - **Add N to Want to read** adds the ticked books with status Want to read, at the end of the queue in series order, with the series name and number, authors (the series' first author when Wikidata lists none), original year and Open Library work id; `source` is `wikidata`. Library books Wikidata lists that have no series get it in the same edit. One toast, one Undo. Covers and page counts arrive with the background cover look-up.
 - **Add page**: a result already in the library that has a series shows "Series #n · Add the rest", which opens the series page and finds the rest straight away.
 - When Wikidata has nothing, the page says so; when it doesn't answer, Try again. Lookups aren't cached between launches.
+
+## Discover
+
+Book recommendations as a deck of cards, from what the library says the reader likes. Everything is computed on the device; Open Library is only asked for candidates and descriptions. There are no other readers' data, so there's no "readers who liked X also liked Y": recommendations come from what books are about and who wrote them, which is good at more of a lane and weaker at surprise, hence the wildcard.
+
+### Taste (`src/lib/taste.js`)
+
+- **Features** of a book: its main author (only the first: Goodreads lists translators and editors as additional authors; "Anonymous", "Unknown" and "Various" are ignored), its subjects, its collections that describe a topic, and its era (before 500, before 1500, by century to 1900, then by half-century), from the original year or else the year.
+- **Subjects** are cleaned: lower case, no accents; library-system and bestseller tags ("Accessible book", "In library", "nyt:…"), and words that say nothing ("Fiction", "Literature", "Classics") dropped; "Fiction, historical, general" becomes "historical fiction"; catalogue headings ("Russia -- Social life and customs -- 19th century") split into their parts. At most 20.
+- **Shelves**: a collection named like Favorites ("favorites", "faves", "loved", "5 stars", …) marks its books as loved rather than describing them; one named like Owned, Kindle, Library, To buy or Did not finish says nothing about the book and is ignored; any other collection is a topic.
+- Features are weighted by type (author 1.4, subject and collection 1, era 0.5) and by rarity across the library (TF-IDF: `ln((N + 1) / (df + 1)) + 1`), so "fiction"-like features count for little; a feature the library has never seen weighs as if no book had it. Each book's vector is normalised; similarity is the cosine.
+- **How much each book counts**: a read book by its rating (5 paws 2, 4 paws 1.5, 3 paws 0.8, 2 paws 0.3, unrated 1, or 2 when on a Favorites shelf), plus 0.5 per extra completed read (at most 1); 1 paw is −1, which counts against its features. Reading 1.2, Want to read 0.5, others 0.3.
+- **Lanes**: the liked books (count above 0, with at least one feature besides era) are clustered by average-linkage agglomerative clustering: each starts alone, and the two groups whose books are most alike on average (weighted by how much each counts) merge, until no two groups average 0.15 or more. Groups that share nothing never merge, so the number of lanes comes from the library. Groups of fewer than 3 books aren't lanes; the 12 biggest (by total weight) are. Fewer than 4 liked books means no lanes yet. It's deterministic, and libraries over 1,500 liked books cluster their best-liked 1,500.
+- A lane is named by its two strongest features (collections before subjects before authors on ties), skipping "19th century"-like subjects where it can, and keeping the longer of two that overlap ("Japanese fiction" over "Japan"). Its key is its strongest such feature; keys are unique.
+- **Learning from swipes**: each swipe counts for the lane its features are closest to now, so swipes survive lanes being recomputed. Want to read and Already read count 1 toward the lane's yes; opening the details first adds 0.25. Not for me counts 1 toward no and nudges the lane's centre away from the card's features (a quarter of the card's direction, a Rocchio update). Swipes halve in weight each year. Not-for-me swipes and 1-paw books also make an anti-profile that every card is scored against. All of this is a function of the library and its swipes, so it syncs, backs up and undoes with them.
+
+### Dealing (`src/lib/discover.js`)
+
+- **Searches** per lane: its two strongest subjects together, its main author, each of its two strongest subjects alone (by rating), its second author. Open Library search, 20 results a page, asking for subjects and the description. Each search's next page is remembered (on the device), and a search that returns fewer than 20 results, or nothing new, isn't asked again. The **wildcard** search is a subject at least two liked books have that no lane leads with, chosen at random.
+- **Candidates** skip study guides and the like ("SparkNotes", "summary of", "companion to", …), books in the library, books already in the deck, and books swiped on: Not for me for a year, Want to read and Already read for good. Matching is by Open Library work and by title (ignoring leading articles) plus first author, since Open Library sometimes has one book as two works.
+- **Score**: similarity to the lane's centre, plus 0.15 × popularity (log of Open Library's reading-log count, capped), minus 0.5 × similarity to the anti-profile. Wildcards are scored against the whole liked profile. Scores of 0.02 or less are dropped.
+- **Which lane deals each card**: Thompson sampling. Each lane draws from Beta(1 + yes, 1 + no) and the highest draw deals its best remaining card, so lanes that get yeses deal more and quiet ones still deal now and then. Every eighth card is a wildcard when there is one; when the lanes run dry, wildcards fill in. Muted lanes never deal.
+- **Why this**: each card names the one or two liked books (counting 1 or more) it's most like.
+- **A deal** adds up to 15 cards: whatever the pools already hold, then a search for each lane whose pool has fewer than 4 usable candidates, in up to three rounds, adding a couple of cards after each answer so the deck grows while the rest arrive. At most one search per lane plus four per deal. The first deal happens when Discover opens with an empty deck; the deck is topped up in the background whenever it drops below 10. Descriptions for the next three cards are fetched in the background, and new cards' covers are loaded so the service worker caches them; the deck is saved on the device, so cards can be swiped offline.
+
+### Screens
+
+- **Discover**: the top card shows its cover, lane, title, author, year and pages, and "Because you liked …". Drag right (or →) for Want to read, left (or ←) for Not for me, up or tap (or ↑) for details; buttons do the same, plus Already read (or R). Want to read adds the book to the end of the queue with its subjects; Already read adds it as read with one undated read, so it doesn't count toward this year. Each swipe is one edit with Undo, which puts the card back on top. The footer counts the cards left; under 10 it offers Deal more, says when more need the internet, and names lanes that have run out of searches ("Running low on … picks").
+- **Details**: a bigger cover, the description (fetched when opened if it wasn't with the card; "wasn't downloaded" offline), up to 10 subjects, Why this (the lane, and the library books it's most like, which open), **More like this** (searches by the card's subjects and author, ranks against a blend of its lane and the card, and puts up to 5 right after it), Back to the card (or Esc), and the swipe buttons.
+- **Your lanes**: each lane with its book count, five covers, its strongest features, how many cards from it were kept and passed on, **Deal from this lane** (moves that lane's cards to the front and deals more from it), and **Mute** (muted lanes aren't dealt, and their cards leave the deck). While books are still waiting for subjects, a note says how many.
+- **Not interested** (Settings): books passed on, newest first, each with Restore; **Clear all** asks first, takes a safety copy and offers Undo. Clearing also forgets what Discover learned from them.
 
 ## Reading goals and stats
 
