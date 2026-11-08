@@ -17,8 +17,35 @@ describe('collections tab', () => {
     expect(t.$('.collection[data-id="c1"] .count').textContent).toBe('1 book');
   });
 
+  it('lists collections A–Z by default, in every list and picker', async () => {
+    const mixed = [['z', 'Zen', 'a'], ['m', 'mystery', 'b'], ['a', 'Art', 'c'], ['n', 'Non-fiction 2', 'd'], ['n2', 'Non-fiction 10', 'e']]
+      .map(([id, name, rank]) => createCollection({ name, rank }, { now: 1, id }));
+    const emma = book({ title: 'Emma' });
+    const t = await mount({ books: [emma], data: { collections: mixed } });
+    const az = ['Art', 'mystery', 'Non-fiction 2', 'Non-fiction 10', 'Zen'];
+    expect(t.$$('select.collection-filter option').map((o) => o.textContent).filter((x) => az.includes(x))).toEqual(az);
+    t.tab('collections');
+    expect(names(t)).toEqual(az);
+    expect(t.$('.collection-order [aria-pressed="true"]').textContent).toBe('A–Z');
+    t.app.actions.go(`/book/${emma.id}`);
+    expect(t.$$('.collections-picker .chip').map((c) => c.textContent).filter((x) => az.includes(x))).toEqual(az);
+  });
+
+  it('keeps your own order under My order, where collections can be moved', async () => {
+    const t = await mount({ data: { collections: [createCollection({ name: 'Zen', rank: 'a' }, { now: 1, id: 'z' }), ...cs()] } });
+    t.tab('collections');
+    t.$('.collection[data-id="c1"] .more').click();
+    expect(t.button('Move down', t.$('.sheet'))).toBeUndefined();
+    t.button('Cancel', t.$('.sheet'))?.click();
+    t.button('My order').click();
+    expect(names(t)).toEqual(['Zen', 'Classics', 'Sci-fi']);
+    expect(t.app.state().data.settings.collectionOrder).toBe('custom');
+    t.button('A–Z').click();
+    expect(names(t)).toEqual(['Classics', 'Sci-fi', 'Zen']);
+  });
+
   it('creates, renames, reorders and deletes', async () => {
-    const t = await mount({ data: { collections: cs() } });
+    const t = await mount({ data: { collections: cs(), settings: { cats: 'lively', collectionOrder: 'custom', updatedAt: 1 } } });
     t.tab('collections');
     t.$('button.new-collection').click();
     t.type('.prompt-input', 'Cozy');

@@ -1,3 +1,4 @@
+import { workerProgress } from '../progress.js';
 import { h, plural } from '../dom.js';
 import { ICONS, PAW } from '../icons.js';
 import { coverEl, displayTitle } from '../cover.js';
@@ -123,7 +124,7 @@ export function libraryView(ctx) {
         Object.entries(SORTS).map(([k, s]) => h('option', { value: k, selected: lib.sort === k }, s.label)))));
 
   const w = state.workers;
-  const status = w.remaining > 0 && state.online ? h('p', { class: 'worker-status' }, `Fetching covers and details… ${plural(w.remaining, 'book')} to go.`) : null;
+  const status = workerProgress(state, ctx.now());
 
   let list;
   if (books.length) {

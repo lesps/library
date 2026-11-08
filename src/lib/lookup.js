@@ -69,7 +69,7 @@ export function parseGoogle(json) {
 
 export function coverLookupUrl(book) {
   const p = new URLSearchParams(book.isbn13 ? { isbn: book.isbn13 } : { title: book.title, ...(book.authors[0] ? { author: book.authors[0] } : {}) });
-  p.set('fields', 'key,cover_i,number_of_pages_median,subject,place,time');
+  p.set('fields', 'key,cover_i,number_of_pages_median,first_publish_year,subject,place,time');
   p.set('limit', '1');
   return `${OL}?${p}`;
 }
@@ -79,8 +79,8 @@ export function coverSrc(book, size = 'M') {
   return book.coverUrl || '';
 }
 
-// The background look-up: the best match's cover (the first result that has one), work, page count
-// and subjects. Subjects come from the work the cover came from, so they describe the same book.
+// The background look-up: the best match's cover (the first result that has one), work, page count,
+// first-published year and subjects. Subjects come from the work the cover came from, so they describe the same book.
 export function parseBookLookup(json) {
   const docs = Array.isArray(json?.docs) ? json.docs : [];
   const d = docs.find((x) => Number.isInteger(x?.cover_i) && x.cover_i > 0) ?? docs[0];
@@ -89,6 +89,7 @@ export function parseBookLookup(json) {
     coverId: Number.isInteger(d.cover_i) && d.cover_i > 0 ? d.cover_i : null,
     olWork: str(d.key),
     pages: Number.isInteger(d.number_of_pages_median) && d.number_of_pages_median > 0 ? d.number_of_pages_median : null,
+    year: Number.isInteger(d.first_publish_year) ? d.first_publish_year : null,
     subjects: cleanSubjects([d.subject, d.place, d.time]),
   };
 }

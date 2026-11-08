@@ -11,10 +11,14 @@ Each release's bullets are shown in the app's "What's new" note, so they're writ
 - The deck tops itself up while you're online and is kept for swiping offline.
 - Changed your mind? Settings → Not interested lists the books you passed on, to restore one or clear them all.
 - Catalog now fetches each book's subjects from Open Library in the background, along with its cover.
+- A progress bar shows how far the background look-ups have got and roughly how long is left. They run while Catalog is open.
+- Explore your reading (from Reading stats): when the books you've read were written, by century and then by decade, their themes, and your most-read authors. Tap any bar to see its books.
+- Settings → Page counts lists the books with no page count. Type one in, or look them all up (Open Library, then Google Books). Reading stats links there when a year has books with no page count. Missing original publication years are filled in from Open Library too.
+- Collections are listed A–Z everywhere. Prefer your own order? Choose My order on the Collections tab.
 
 ### Developer
 
-- `src/lib/taste.js` (features, TF-IDF, average-linkage lanes, Rocchio and Thompson sampling, all recomputed from library + swipes), `src/lib/discover.js`, `views/discover.js`; swipe records (DB v3, backup v3); book fields `subjects`, `subjectsAt`; `settings.mutedLanes`; the deck in `meta.discover`.
+- `src/lib/taste.js` (features, TF-IDF, average-linkage lanes, Rocchio and Thompson sampling, all recomputed from library + swipes), `src/lib/discover.js`, `views/discover.js`; swipe records (DB v3, backup v3); book fields `subjects`, `subjectsAt`; `settings.mutedLanes`, `settings.collectionOrder`; the deck in `meta.discover`. `src/lib/explore.js`, `views/explore.js`, `charts.js` `barList`, `progress.js`. The background worker merges per-book patches within a batch (a book looked up twice in one batch no longer loses the first result).
 
 ## 0.5.0 — 2026-11-07
 

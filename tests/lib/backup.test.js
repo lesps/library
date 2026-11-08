@@ -15,7 +15,7 @@ const data = {
   collections: [createCollection({ name: 'Sci-fi', rank: 'i' }, { now: T, id: 'c1' })],
   reads: [createRead({ bookId: 'b1', finished: '2026-03-01' }, { now: T, id: 'r1' })],
   swipes: [createSwipe({ work: '/works/OL1W', title: 'Gone Girl', verdict: 'no', features: ['s:thrillers'] }, { now: T })],
-  settings: { cats: 'subtle', goals: { 2026: { books: 30, pages: null } }, mutedLanes: ['s:thrillers'], updatedAt: T },
+  settings: { cats: 'subtle', goals: { 2026: { books: 30, pages: null } }, mutedLanes: ['s:thrillers'], collectionOrder: 'custom', updatedAt: T },
 };
 
 describe('backup round trip', () => {
@@ -60,7 +60,7 @@ describe('backup round trip', () => {
   it('reads backups made before goals existed', () => {
     const { settings, ...rest } = exportData(data, T);
     const parsed = parseBackup(JSON.stringify({ ...rest, settings: { cats: 'off', updatedAt: T } }));
-    expect(parsed.data.settings).toEqual({ cats: 'off', goals: {}, mutedLanes: [], updatedAt: T });
+    expect(parsed.data.settings).toEqual({ cats: 'off', goals: {}, mutedLanes: [], collectionOrder: 'az', updatedAt: T });
   });
 });
 

@@ -693,3 +693,51 @@ body:has(.bulkbar) .toast { bottom: calc(var(--tabbar) + var(--safe-b) + 130px);
 .lane .mute[aria-pressed='true'] { background: var(--paper-2); }
 .dismissed-view .clear-dismissed { margin: 4px 0 8px; }
 .deleted-book { background: color-mix(in srgb, var(--page) 72%, transparent); }
+
+/* ——— background look-up progress ——— */
+.work-progress { margin: 10px 0; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--paper); text-shadow: none; }
+.work-progress.compact { flex-basis: 100%; margin: 8px 0 0; padding: 8px 10px; text-align: left; }
+.wp-text { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; font-size: 13px; }
+.wp-label { font-weight: 650; color: var(--ink); }
+.wp-count { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.wp-track { margin-top: 7px; height: 6px; border-radius: 999px; background: var(--paper-2); overflow: hidden; }
+.wp-fill { display: block; height: 100%; border-radius: inherit; background: var(--green-2); transition: width 0.4s ease; }
+.wp-note { margin: 6px 0 0; font-size: 12px; color: var(--ink-3); }
+.settings-view .work-progress { margin: 8px 0; }
+.collection-order { display: flex; gap: 6px; margin: 2px 0 8px; }
+
+/* ——— page counts ——— */
+.pages-view .look-up-pages { margin: 4px 0 6px; }
+.page-list .pb-input { width: 84px; flex: none; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--paper); font-variant-numeric: tabular-nums; }
+.pb-queued, .pb-missed { font-size: 12px; font-weight: 600; }
+.pb-queued { color: var(--green-2); }
+.pb-missed { color: var(--ink-3); }
+.fill-pages { padding: 0; font-size: inherit; }
+
+/* ——— Explore ——— */
+.explore-link { display: inline-block; margin: 0 0 6px; padding: 0; font-weight: 650; text-align: left; }
+.scope-chips { margin: 8px 0 4px; padding: 0; overflow: visible; }
+.explore-view .card { text-shadow: none; }
+.explore-view .card h2 { margin: 0 0 4px; }
+.explore-view .chart figcaption { font: 650 13px var(--body); color: var(--ink-2); }
+.by-decade { margin-top: 18px; }
+.bar-rows { display: flex; flex-direction: column; gap: 2px; }
+.bar-row { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr) 2.5em; align-items: center; gap: 10px; width: 100%; padding: 5px 2px; border: 0; background: none; color: inherit; text-align: left; border-radius: 8px; font: inherit; }
+button.bar-row { cursor: pointer; }
+button.bar-row:hover, button.bar-row:focus-visible { background: var(--paper-2); }
+.bar-name { font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-name::first-letter { text-transform: uppercase; }
+.bar-track { position: relative; height: 12px; }
+.bar-fill { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--v) * 100%); min-width: 3px; background: var(--green); border-radius: 0 4px 4px 0; }
+.bar-row.off .bar-fill { background: var(--chart-muted); }
+.bar-row.on .bar-name { font-weight: 700; }
+.bar-value { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; }
+.explore-books { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; }
+.explore-books ul { list-style: none; margin: 0 0 8px; padding: 0; }
+.eb-open { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; padding: 6px 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.eb-open .thumb { width: 32px; }
+.eb-text { display: flex; flex-direction: column; min-width: 0; }
+.eb-title { font-weight: 650; line-height: 1.25; }
+.eb-author { font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eb-year { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.no-year { margin: 10px 0 0; }

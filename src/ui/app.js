@@ -8,6 +8,7 @@ import { toast } from './toast.js';
 import { ICONS } from './icons.js';
 import { createCatLayer } from './cat-layer.js';
 import { createNet, OfflineError, HttpError } from './net.js';
+import { workerProgress } from './progress.js';
 import { saveFile as defaultSaveFile } from './files.js';
 import { detectEnv } from './install.js';
 import { showWhatsNew } from './whats-new.js';
@@ -15,7 +16,7 @@ import { openStore, createMemoryStore } from '../db/store.js';
 import { emptyData, mergeData, KINDS } from '../lib/merge.js';
 import { applyEdits, restoreEdits, snapshotsToKeep, snapshotDue, dataVersion } from '../lib/snapshots.js';
 import { captureBefore, undoEdits } from '../lib/undo.js';
-import { createBook, updateBook, STATUS_LABELS } from '../lib/book.js';
+import { createBook, updateBook, STATUS_LABELS, normalize, titleSortKey } from '../lib/book.js';
 import { statusChange, createRead, sanitizeRead, reconcileReads } from '../lib/reads.js';
 import { createNote, createProgress, createCollection, sanitizeNote, touch, findCollection, createSwipe } from '../lib/records.js';
 import { toReadQueue, queueEndRank, findDuplicate } from '../lib/library.js';
@@ -35,8 +36,9 @@ import { addView } from './views/add.js';
 import { collectionsView } from './views/collections.js';
 import { seriesView } from './views/series.js';
 import { seriesKey, seriesList, seriesLabel, booksInSeries, wdFindSeriesUrl, parseFoundSeries, pickSeries, wdMembersUrl, parseMembers, matchMember } from '../lib/series.js';
-import { settingsView, snapshotsView, deletedView, dismissedView } from './views/settings.js';
+import { settingsView, snapshotsView, deletedView, dismissedView, pagesView } from './views/settings.js';
 import { discoverView, lanesView } from './views/discover.js';
+import { exploreView } from './views/explore.js';
 import { findLanes, vectorize, featuresFromKeys, blend } from '../lib/taste.js';
 import { laneQueries, wildcardQuery, searchUrl, workUrl, nextQuery, parseDeal, parseWorkDescription, rankPool, deal, stillFresh, cardToBook, DEAL_SIZE, DECK_LOW, PAGE_SIZE, WILDCARD } from '../lib/discover.js';
 import { rng } from '../lib/cats.js';
@@ -50,7 +52,7 @@ export const TABS = [
   { view: 'collections', label: 'Collections', icon: 'collections' },
   { view: 'settings', label: 'Settings', icon: 'settings' },
 ];
-const VIEWS = { library: libraryView, book: bookView, reading: readingView, stats: statsView, add: addView, collections: collectionsView, series: seriesView, discover: discoverView, lanes: lanesView, dismissed: dismissedView, settings: settingsView, import: importView, snapshots: snapshotsView, deleted: deletedView };
+const VIEWS = { library: libraryView, book: bookView, reading: readingView, stats: statsView, add: addView, collections: collectionsView, series: seriesView, discover: discoverView, lanes: lanesView, dismissed: dismissedView, pages: pagesView, explore: exploreView, settings: settingsView, import: importView, snapshots: snapshotsView, deleted: deletedView };
 const PREF_KEYS = ['layout', 'sort', 'status', 'collection'];
 const DAY = 86_400_000;
 const RETRY_MS = 15_000;
@@ -110,8 +112,12 @@ export function mountApp(root, opts = {}) {
     // (memory only), the card turned over for details, and the cards looked at this session.
     discover: { deck: [], cursors: {}, exhausted: [], pools: new Map(), dealing: false, details: null, peeked: new Set(), thin: [], error: '' },
     statsYear: null,
+    // Explore: which books, the century/decade, theme and author picked, and lists opened in full.
+    explore: { scope: 'read', century: null, decade: null, theme: null, author: null, open: new Set() },
     statsShowAll: false,
-    workers: { remaining: 0, running: false, pausedUntil: 0 },
+    // Background look-ups: books left, done so far (until the queue empties), and this run's pace.
+    // pagesWanted: books the reader asked to find page counts for; pagesMissed: ones not found.
+    workers: { remaining: 0, running: false, pausedUntil: 0, done: 0, runDone: 0, startedAt: 0, pagesWanted: new Set(), pagesMissed: new Set() },
   };
 
   // ——— shell ———
@@ -166,7 +172,7 @@ export function mountApp(root, opts = {}) {
     const view = state.loading ? h('div', { class: 'loading' }, 'Opening your library…') : VIEWS[state.route.view](ctx);
     main.dataset.view = state.route.view;
     main.replaceChildren(...banners(), view);
-    const tab = { book: 'library', import: 'library', stats: 'reading', series: 'collections', discover: 'add', lanes: 'add', snapshots: 'settings', deleted: 'settings', dismissed: 'settings' }[state.route.view] ?? state.route.view;
+    const tab = { book: 'library', import: 'library', stats: 'reading', explore: 'reading', series: 'collections', discover: 'add', lanes: 'add', snapshots: 'settings', deleted: 'settings', dismissed: 'settings', pages: 'settings' }[state.route.view] ?? state.route.view;
     for (const b of tabs.children) {
       if (b.dataset.view === tab) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
@@ -275,7 +281,11 @@ export function mountApp(root, opts = {}) {
   }
 
   const bookById = (id) => state.data.books.find((b) => b.id === id);
-  const liveCollections = () => state.data.collections.filter((c) => !c.deleted).sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0));
+  // Collections by rank (their own order, for moving and adding at the end), and as listed:
+  // A–Z by name (ignoring case, numbers in number order) unless the reader chose My order.
+  const rankedCollections = () => state.data.collections.filter((c) => !c.deleted).sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0));
+  const byName = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+  const liveCollections = () => (state.data.settings.collectionOrder === 'custom' ? rankedCollections() : rankedCollections().sort((a, b) => byName.compare(a.name, b.name)));
 
   // ——— safety copies ———
   async function snapshot(reason) {
@@ -328,13 +338,19 @@ export function mountApp(root, opts = {}) {
     const w = state.workers;
     if (w.running || !state.online || now() < w.pausedUntil) return;
     w.running = true;
+    w.startedAt = now();
+    w.runDone = 0;
     const tried = runWorkers.tried ?? (runWorkers.tried = new Set());
+    let shown = false;
     let batch = [];
     const flushBatch = () => {
       if (!batch.length) return;
-      const books = batch.map(([id, patch]) => {
+      // One book can be looked up twice in a batch (a page count, then its cover): merge its patches.
+      const patches = new Map();
+      for (const [id, p] of batch) patches.set(id, { ...patches.get(id), ...p });
+      const books = [...patches].map(([id, p]) => {
         const b = bookById(id);
-        return b ? updateBook(b, patch, now()) : null;
+        return b ? updateBook(b, p, now()) : null;
       }).filter(Boolean);
       batch = [];
       edit({ books }, { undoable: false });
@@ -345,13 +361,22 @@ export function mountApp(root, opts = {}) {
         const live = state.data.books.filter((b) => !b.deleted && !tried.has(b.id));
         const details = live.find((b) => b.needsLookup);
         const wanted = (b) => needsCover(b, now()) || needsSubjects(b, now());
-        const cover = details ? null : live.filter(wanted).sort((a, b) => b.addedAt - a.addedAt)[0];
-        const book = details ?? cover;
-        w.remaining = live.filter((b) => b.needsLookup || wanted(b)).length;
+        // Page counts the reader asked for come right after saved-for-later details.
+        const pagesFor = details ? null : state.data.books.find((b) => w.pagesWanted.has(b.id) && !b.deleted && !b.pages);
+        for (const id of w.pagesWanted) if (!bookById(id) || bookById(id).deleted || bookById(id).pages) w.pagesWanted.delete(id);
+        const cover = details || pagesFor ? null : live.filter(wanted).sort((a, b) => b.addedAt - a.addedAt)[0];
+        const book = details ?? pagesFor ?? cover;
+        w.remaining = live.filter((b) => b.needsLookup || wanted(b)).length + [...w.pagesWanted].filter((id) => !live.some((b) => b.id === id && (b.needsLookup || wanted(b)))).length;
         if (!book) break;
-        tried.add(book.id);
+        if (!shown) { shown = true; render(); }
+        if (book === pagesFor) w.pagesWanted.delete(book.id);
+        else tried.add(book.id);
         try {
-          if (details) {
+          if (book === pagesFor) {
+            const pages = await findPages(book);
+            if (pages) batch.push([book.id, { pages }]);
+            else w.pagesMissed.add(book.id);
+          } else if (details) {
             const [hit] = await lookup(book.isbn13, { priority: 'background' });
             if (hit) {
               batch.push([book.id, { ...Object.fromEntries(DETAIL_FIELDS.filter((f) => hit[f] != null && hit[f] !== '').map((f) => [f, hit[f]])), needsLookup: false, coverCheckedAt: now() }]);
@@ -362,6 +387,7 @@ export function mountApp(root, opts = {}) {
             const patch = {};
             if (needsCover(book, now())) Object.assign(patch, found?.coverId ? { coverId: found.coverId, olWork: found.olWork } : { coverCheckedAt: now() });
             if (found?.pages && !book.pages) patch.pages = found.pages;
+            if (found?.year != null && book.originalYear == null) patch.originalYear = found.year;
             if (needsSubjects(book, now())) Object.assign(patch, { subjects: found?.subjects ?? [], subjectsAt: now() });
             if (found?.olWork && !book.olWork) patch.olWork = found.olWork;
             batch.push([book.id, patch]);
@@ -373,17 +399,48 @@ export function mountApp(root, opts = {}) {
             break;
           }
         }
+        w.done += 1;
+        w.runDone += 1;
+        w.remaining -= 1;
         if (batch.length >= 6) flushBatch();
+        else refreshProgress();
       }
     } finally {
       flushBatch();
       w.running = false;
-      w.remaining = state.data.books.filter((b) => !b.deleted && !tried.has(b.id) && (b.needsLookup || needsCover(b, now()) || needsSubjects(b, now()))).length;
+      w.remaining = state.data.books.filter((b) => !b.deleted && !tried.has(b.id) && (b.needsLookup || needsCover(b, now()) || needsSubjects(b, now()))).length + w.pagesWanted.size;
+      if (!w.remaining) w.done = 0;
       render();
     }
   }
 
   const startWorkers = () => { if (workersOn) runWorkers(); };
+
+  // A page count for one book: Open Library's (the median across editions), else Google Books'.
+  // A text search only counts when the result has the same title, so another book's count isn't used.
+  const sameTitle = (a, b) => {
+    const x = normalize(titleSortKey(a));
+    const y = normalize(titleSortKey(b));
+    return !!x && !!y && (x === y || x.startsWith(`${y} `) || y.startsWith(`${x} `) || x.startsWith(`${y}:`) || y.startsWith(`${x}:`));
+  };
+  async function findPages(book) {
+    const isbn = book.isbn13 || '';
+    const q = isbn || `${book.title} ${book.authors[0] ?? ''}`.trim();
+    const fits = (r) => r.pages && (isbn || sameTitle(r.title, book.title));
+    const ol = parseOlSearch(await net.get(olSearchUrl(q, { limit: 3 }), { priority: 'background' }), { isbn });
+    const hit = ol.find(fits);
+    if (hit) return hit.pages;
+    return parseGoogle(await net.get(googleSearchUrl(q), { priority: 'background' })).find(fits)?.pages ?? null;
+  }
+
+  // Progress bars update in place each book, without redrawing the whole view.
+  function refreshProgress() {
+    for (const el of root.querySelectorAll('.work-progress')) {
+      const next = workerProgress(state, now(), { compact: el.classList.contains('compact') });
+      if (next) el.replaceWith(next);
+      else el.remove();
+    }
+  }
 
   // ——— actions ———
   // Status changes carry their reads: starting opens one, finishing closes it (see reads.js).
@@ -408,7 +465,7 @@ export function mountApp(root, opts = {}) {
       toast(`There’s already a collection called “${name}”.`);
       return null;
     }
-    const last = liveCollections().at(-1)?.rank ?? '';
+    const last = rankedCollections().at(-1)?.rank ?? '';
     return createCollection({ name, rank: rankBetween(last, '') }, { now: now() });
   }
 
@@ -831,7 +888,7 @@ export function mountApp(root, opts = {}) {
       } });
     },
     moveCollection(id, dir) {
-      const cs = liveCollections();
+      const cs = rankedCollections();
       const i = cs.findIndex((c) => c.id === id);
       const rest = cs.filter((c) => c.id !== id);
       const to = Math.max(0, Math.min(rest.length, i + dir));
@@ -1200,6 +1257,14 @@ export function mountApp(root, opts = {}) {
       const goals = sanitizeGoals({ ...state.data.settings.goals, [year]: { books, pages } });
       edit({ settings: { ...state.data.settings, goals, updatedAt: now() } }, { undoable: false });
     },
+    setExplore(patch) {
+      Object.assign(state.explore, patch);
+      render();
+    },
+    exploreShowAll(key) {
+      state.explore.open.add(key);
+      render();
+    },
     setStatsYear(year) {
       state.statsYear = year;
       state.statsShowAll = false;
@@ -1208,6 +1273,24 @@ export function mountApp(root, opts = {}) {
     showAllFinished() {
       state.statsShowAll = true;
       render();
+    },
+    // Page counts
+    missingPages: () => state.data.books.filter((b) => !b.deleted && !b.pages && !b.needsLookup),
+    setPages(id, value) {
+      const b = bookById(id);
+      if (b) edit({ books: [updateBook(b, { pages: value }, now())] }, { undoable: false });
+    },
+    lookUpPages() {
+      const w = state.workers;
+      for (const b of actions.missingPages()) {
+        w.pagesWanted.add(b.id);
+        w.pagesMissed.delete(b.id);
+      }
+      render();
+      runWorkers();
+    },
+    setCollectionOrder(order) {
+      edit({ settings: { ...state.data.settings, collectionOrder: order, updatedAt: now() } }, { undoable: false });
     },
     setCats(level) {
       edit({ settings: { ...state.data.settings, cats: level, updatedAt: now() } }, { undoable: false });

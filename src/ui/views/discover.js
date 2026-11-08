@@ -3,6 +3,7 @@ import { ICONS } from '../icons.js';
 import { coverEl } from '../cover.js';
 import { mascot } from '../cat-layer.js';
 import { DECK_LOW } from '../../lib/discover.js';
+import { workerProgress } from '../progress.js';
 
 // Search and Discover share the Add tab.
 export const addModes = (actions, current) => h('div', { class: 'add-modes', role: 'tablist', 'aria-label': 'Ways to add books' },
@@ -156,7 +157,8 @@ export function discoverView(ctx) {
     low || !deck.length ? h('button', { type: 'button', class: 'btn small deal-more', disabled: !state.online || d.dealing, onclick: () => actions.dealCards({ priority: 'user' }) }, 'Deal more') : null,
     !state.online && low ? h('p', { class: 'muted' }, 'More cards need the internet.') : null,
     low && d.thin.length ? h('p', { class: 'muted thin' }, `Running low on ${and(d.thin)} picks.`) : null,
-    d.error ? h('p', { class: 'error' }, d.error) : null);
+    d.error ? h('p', { class: 'error' }, d.error) : null,
+    workerProgress(state, ctx.now(), { compact: true }));
 
   return h('section', { class: 'discover-view' }, addModes(actions, 'discover'), head, stage, c && d.details !== c.work ? actionBar(ctx, c) : null, foot);
 }
@@ -169,7 +171,8 @@ export function lanesView(ctx) {
     h('div', { class: 'detail-top' }, h('button', { type: 'button', class: 'icon-btn back', 'aria-label': 'Back', html: ICONS.back, onclick: () => actions.go('/discover') })),
     h('h1', {}, 'Your lanes'),
     h('p', { class: 'muted' }, 'Discover groups the books you’ve liked into lanes and deals from each. Lanes you keep saying yes to deal more often. Mute one to stop seeing it.'),
-    waiting ? h('p', { class: 'note' }, `Still looking up subjects for ${plural(waiting, 'book')}. Lanes sharpen as they arrive.`) : null,
+    waiting ? h('p', { class: 'note' }, `${plural(waiting, 'book')} still need${waiting === 1 ? 's' : ''} subjects. Lanes sharpen as they arrive.`) : null,
+    workerProgress(state, ctx.now()),
     t.lanes.length ? h('ul', { class: 'lanes' }, t.lanes.map((l) => h('li', { class: `lane card${l.muted ? ' muted' : ''}` },
       h('div', { class: 'lane-head' }, h('h2', { class: 'lane-label' }, l.label), h('span', { class: 'lane-count' }, plural(l.books.length, 'book'))),
       h('div', { class: 'fan' }, l.books.slice(0, 5).map((b) => coverEl(b, { size: 'S', cls: 'thumb' }))),

@@ -8,6 +8,7 @@ A personal library app, looked after by cats. The organizing half of Goodreads: 
 - **Add books** by title, author or ISBN (Open Library, then Google Books), by hand when a search comes up empty, by scanning the barcodes on a stack of books with your camera, or by pasting a list of ISBNs and titles. Offline, scanned and saved ISBNs fill in later.
 - **Bulk changes.** Select many books (or long-press one) to change their status, add them to a collection, export them, or delete them, with Undo.
 - **Discover.** Swipe through book recommendations dealt from your own reading lanes (clusters of the books you've liked): right for Want to read, left to pass, up for details and why it was picked. It learns from your swipes, keeps a deck for offline, and everything is worked out on your device.
+- **Explore your reading.** When the books you've read were written (by century, then decade), their themes, and your most-read authors.
 - **Series.** Goodreads series come over and group themselves; tap a series to see it in order. Find the rest of a series (from Wikidata) and add the books you don't have to your to-read list in one go.
 - **Reading.** Progress by page or percent, ratings in paws, dated notes with page numbers, a review.
 - **Rereads.** Every time through a book is its own read with its own dates; start a reread from the book page. Notes can be about a particular read, and they're grouped by read so you can compare what you noticed each time. Rereads count toward your goals.

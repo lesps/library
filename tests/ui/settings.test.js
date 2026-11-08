@@ -141,6 +141,14 @@ describe('covers', () => {
     expect(fetch.calls).toHaveLength(1);
   });
 
+  it('fills a missing original year from Open Library’s first-published year, never replacing one', async () => {
+    const { fakeFetch } = await import('./helpers.js');
+    const fetch = fakeFetch([['title=', { docs: [{ key: '/works/W', cover_i: 7, first_publish_year: 1869 }] }]]);
+    const t = await mount({ fetch, books: [book({ title: 'War and Peace', year: 2008 }), book({ title: 'Kept', originalYear: 1950 })] });
+    await t.app.actions.runWorkers();
+    expect(t.live().map((b) => [b.title, b.originalYear])).toEqual([['War and Peace', 1869], ['Kept', 1950]]);
+  });
+
   it('fills a missing page count with the cover, never replacing one', async () => {
     const { fakeFetch } = await import('./helpers.js');
     const fetch = fakeFetch([['title=', { docs: [{ key: '/works/W', cover_i: 7, number_of_pages_median: 300 }] }]]);

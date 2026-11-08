@@ -41,6 +41,7 @@ export function statsView(ctx) {
   return h('section', { class: 'stats-view' },
     h('div', { class: 'detail-top' }, h('button', { type: 'button', class: 'icon-btn back', 'aria-label': 'Back', html: ICONS.back, onclick: () => actions.go('/reading') })),
     h('h1', {}, 'Reading stats'),
+    h('button', { type: 'button', class: 'link explore-link', onclick: () => actions.go('/explore') }, 'Explore your reading: when, what and who →'),
     h('div', { class: 'chips year-chips', role: 'group', 'aria-label': 'Year' },
       chips.map((y) => h('button', { type: 'button', 'aria-pressed': String(y === year), onclick: () => pick(y) }, String(y)))),
 
@@ -88,7 +89,8 @@ export function statsView(ctx) {
         h('span', { class: 'fl-meta' }, h('span', { class: 'fl-date' }, formatDate(read.finished, now())), reread ? h('span', { class: 'reread' }, 'Reread') : null, paws(b.rating, 'small')))))
         : h('p', { class: 'muted' }, year > current ? 'This year hasn’t started.' : 'No books with a finish date in this year.'),
       s.count > SHOW && !state.statsShowAll ? h('button', { type: 'button', class: 'btn small show-all', onclick: () => actions.showAllFinished() }, `Show all ${s.count}`) : null,
-      s.unknownPages ? h('p', { class: 'muted small' }, `${plural(s.unknownPages, 'book')} here ${s.unknownPages === 1 ? 'has' : 'have'} no page count, so ${s.unknownPages === 1 ? 'it isn’t' : 'they aren’t'} in the page total. “Fill in from the web” on the book’s page can find it.`) : null),
+      s.unknownPages ? h('p', { class: 'muted small' }, `${plural(s.unknownPages, 'book')} here ${s.unknownPages === 1 ? 'has' : 'have'} no page count, so ${s.unknownPages === 1 ? 'it isn’t' : 'they aren’t'} in the page total. `,
+        h('button', { type: 'button', class: 'link fill-pages', onclick: () => ctx.actions.go('/pages') }, 'Fill them in')) : null),
 
 
     undated.length ? h('details', { class: 'undated card' },

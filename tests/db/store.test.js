@@ -40,7 +40,7 @@ describe.each(kinds)('%s store', (kind, make) => {
     expect(data.notes[0].text).toBe('hi');
     expect(data.collections[0].name).toBe('Sci-fi');
     expect(data.swipes.map((s) => s.id)).toEqual(['sw-OL1W']);
-    expect(data.settings).toEqual({ cats: 'off', goals: {}, mutedLanes: [], updatedAt: T });
+    expect(data.settings).toEqual({ cats: 'off', goals: {}, mutedLanes: [], collectionOrder: 'az', updatedAt: T });
     expect(meta).toEqual({ lastExport: T, prefs: { view: 'list' } });
   });
 

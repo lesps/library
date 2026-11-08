@@ -5,6 +5,7 @@ import { mascot } from '../cat-layer.js';
 import { showIosHelp } from '../install.js';
 import { formatDate, dayKey } from '../../lib/dates.js';
 import { needsCover } from '../../lib/lookup.js';
+import { workerProgress } from '../progress.js';
 
 const when = (ts, now) => `${formatDate(dayKey(ts), now)} at ${new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 const REASONS = { daily: 'Daily copy', import: 'Before an import', delete: 'Before a delete', restore: 'Before a restore', merge: 'Before merging a backup', manual: 'Saved by hand', dismissed: 'Before clearing Not interested' };
@@ -18,6 +19,7 @@ export function settingsView({ state, actions, env, now }) {
   const live = state.data.books.filter((b) => !b.deleted);
   const deleted = state.data.books.filter((b) => b.deleted).length;
   const dismissed = state.data.swipes.filter((x) => !x.deleted && x.verdict === 'no').length;
+  const noPages = actions.missingPages().length;
   const missingCovers = live.filter((b) => needsCover(b, t)).length;
   const last = state.meta.lastExport;
   return h('section', { class: 'settings-view' },
@@ -36,7 +38,8 @@ export function settingsView({ state, actions, env, now }) {
     h('section', { class: 'card rows' },
       row('Safety copies', 'Daily copies kept on this device', () => actions.go('/snapshots')),
       row('Recently deleted', deleted ? plural(deleted, 'book') : 'Nothing', () => actions.go('/deleted')),
-      row('Not interested', dismissed ? plural(dismissed, 'book') : 'Nothing', () => actions.go('/dismissed'))),
+      row('Not interested', dismissed ? plural(dismissed, 'book') : 'Nothing', () => actions.go('/dismissed')),
+      row('Page counts', noPages ? `${plural(noPages, 'book')} without one` : 'Every book has one', () => actions.go('/pages'))),
 
     h('section', { class: 'card' },
       h('h2', {}, 'Goodreads'),
@@ -55,7 +58,8 @@ export function settingsView({ state, actions, env, now }) {
     h('section', { class: 'card' },
       h('h2', {}, 'Covers'),
       h('p', { class: 'muted' }, missingCovers ? `${plural(missingCovers, 'book')} without a cover yet. ${state.online ? 'They’re fetched in the background, about one a second.' : 'They’ll be fetched when you’re online.'}` : 'Every book has a cover, or none could be found.'),
-      missingCovers && state.online ? h('button', { type: 'button', class: 'btn small', onclick: () => actions.runWorkers() }, 'Fetch now') : null),
+      workerProgress(state, t),
+      missingCovers && state.online && !state.workers.running ? h('button', { type: 'button', class: 'btn small', onclick: () => actions.runWorkers() }, 'Fetch now') : null),
 
     h('section', { class: 'card' },
       h('h2', {}, 'This app'),
@@ -108,4 +112,30 @@ export function dismissedView({ state, actions, now }) {
         h('span', { class: 'db-author' }, [s.authors.join(', '), `passed on ${formatDate(dayKey(s.at), now())}`].filter(Boolean).join(' · '))),
       h('button', { type: 'button', class: 'btn small restore', onclick: () => actions.restoreSwipe(s.id) }, 'Restore'))))
       : h('div', { class: 'empty' }, mascot('done'), h('p', {}, 'Nothing here. Books you pass on in Discover show up here.')));
+}
+
+// Books with no page count: read ones first, since they're missing from page totals and goals.
+// Type one in, or have them looked up (Open Library, then Google Books) in the background.
+export function pagesView(ctx) {
+  const { state, actions } = ctx;
+  const w = state.workers;
+  const list = actions.missingPages().sort((a, b) => (b.status === 'read') - (a.status === 'read') || displayTitle(a).localeCompare(displayTitle(b)));
+  return h('section', { class: 'pages-view' },
+    h('div', { class: 'detail-top' }, h('button', { type: 'button', class: 'icon-btn back', 'aria-label': 'Back', html: ICONS.back, onclick: () => actions.back() })),
+    h('h1', {}, 'Page counts'),
+    h('p', { class: 'muted' }, list.length
+      ? `${plural(list.length, 'book')} ${list.length === 1 ? 'has' : 'have'} no page count, so ${list.length === 1 ? 'it’s' : 'they’re'} missing from page totals and goals. Type one in, or look them all up.`
+      : 'Every book has a page count.'),
+    list.length ? h('button', { type: 'button', class: 'btn primary small look-up-pages', disabled: !state.online, onclick: () => actions.lookUpPages() },
+      state.online ? `Look up ${list.length === 1 ? 'it' : `all ${list.length}`}` : 'Looking up needs the internet') : null,
+    workerProgress(state, ctx.now()),
+    list.length ? h('ul', { class: 'deleted page-list' }, list.slice(0, 500).map((b) => h('li', { class: 'deleted-book' },
+      coverEl(b, { size: 'S', cls: 'thumb' }),
+      h('span', { class: 'db-text' },
+        h('span', { class: 'db-title pb-title' }, displayTitle(b)),
+        h('span', { class: 'db-author' }, b.authors.join(', ')),
+        w.pagesWanted.has(b.id) ? h('span', { class: 'pb-queued' }, 'Looking up…') : w.pagesMissed.has(b.id) ? h('span', { class: 'pb-missed' }, 'Not found online') : null),
+      h('input', { type: 'number', class: 'pb-input', min: '1', max: '100000', inputmode: 'numeric', placeholder: 'Pages', 'aria-label': `Pages in ${displayTitle(b)}`,
+        onchange: (e) => { if (e.target.value) actions.setPages(b.id, e.target.value); } }))))
+      : h('div', { class: 'empty' }, mascot('done'), h('p', {}, 'Nothing to fill in.')));
 }

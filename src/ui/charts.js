@@ -42,3 +42,24 @@ export function columnChart({ cls, caption, data, selected = null, onSelect = nu
     h('div', { class: 'chart-plot' }, cols, tip),
     h('div', { class: 'chart-axis', 'aria-hidden': 'true' }, data.map((d) => h('span', { class: d.key === selected ? 'on' : '' }, d.axis))));
 }
+
+// Ranked horizontal bars: one series, largest first, on one baseline (for ranking categories with
+// long names). Every bar carries its value at the tip and describes itself; with onSelect the rows
+// are buttons and the selected one is emphasized (the rest go gray). Text never takes the data colour.
+// data: [{ key, name, value, label }]
+export function barList({ cls, caption, data, selected = null, onSelect = null }) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  return h('figure', { class: `chart bars ${cls}` },
+    caption ? h('figcaption', {}, caption) : null,
+    h('div', { class: 'bar-rows' }, data.map((d) => {
+      const attrs = { class: `bar-row${selected != null ? (d.key === selected ? ' on' : ' off') : ''}`, 'data-key': String(d.key), 'aria-label': d.label, style: { '--v': String(d.value / max) } };
+      const body = [
+        h('span', { class: 'bar-name', 'aria-hidden': 'true' }, d.name),
+        h('span', { class: 'bar-track', 'aria-hidden': 'true' }, h('span', { class: 'bar-fill' })),
+        h('span', { class: 'bar-value', 'aria-hidden': 'true' }, String(d.value)),
+      ];
+      return onSelect
+        ? h('button', { ...attrs, type: 'button', 'aria-pressed': String(d.key === selected), onclick: () => onSelect(d.key) }, ...body)
+        : h('div', { ...attrs, role: 'img' }, ...body);
+    })));
+}

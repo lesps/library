@@ -6,8 +6,13 @@ import { seriesList } from '../../lib/series.js';
 
 const fan = (books) => h('span', { class: 'fan' }, books.slice(0, 3).map((b) => coverEl(b, { size: 'S', cls: 'thumb' })));
 
-function collectionList({ actions }, cs, live) {
+function collectionList({ state, actions }, cs, live) {
+  const custom = state.data.settings.collectionOrder === 'custom';
   return [
+    h('div', { class: 'collection-order', role: 'group', 'aria-label': 'Order collections' },
+      [['az', 'A–Z'], ['custom', 'My order']].map(([v, label]) => h('button', {
+        type: 'button', class: 'chip', 'aria-pressed': String((custom ? 'custom' : 'az') === v), onclick: () => actions.setCollectionOrder(v),
+      }, label))),
     h('ul', { class: 'collections' }, cs.map((c, i) => {
       const books = live.filter((b) => b.collectionIds.includes(c.id));
       return h('li', { class: 'collection', 'data-id': c.id },
@@ -18,8 +23,8 @@ function collectionList({ actions }, cs, live) {
           type: 'button', class: 'icon-btn more', 'aria-label': `Options for ${c.name}`, html: ICONS.more,
           onclick: () => sheet({ title: c.name, items: [
             { label: 'Rename', onClick: () => actions.renameCollection(c.id) },
-            i > 0 && { label: 'Move up', onClick: () => actions.moveCollection(c.id, -1) },
-            i < cs.length - 1 && { label: 'Move down', onClick: () => actions.moveCollection(c.id, 1) },
+            custom && i > 0 && { label: 'Move up', onClick: () => actions.moveCollection(c.id, -1) },
+            custom && i < cs.length - 1 && { label: 'Move down', onClick: () => actions.moveCollection(c.id, 1) },
             { label: 'Delete', danger: true, onClick: () => actions.deleteCollection(c.id) },
           ] }),
         }));

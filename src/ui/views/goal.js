@@ -54,7 +54,10 @@ export function goalCard(ctx, year, { compact = false } = {}) {
   const t = now();
   const current = new Date(t).getFullYear();
   const mark = year === current ? (dayOfYear(t) - 0.5) / daysInYear(year) : null;
-  const seeStats = compact ? h('button', { type: 'button', class: 'link see-stats', onclick: () => actions.go('/stats') }, 'See reading stats') : null;
+  const seeStats = compact ? [
+    h('button', { type: 'button', class: 'link see-stats', onclick: () => actions.go('/stats') }, 'See reading stats'),
+    h('button', { type: 'button', class: 'link explore-link', onclick: () => actions.go('/explore') }, 'Explore your reading'),
+  ] : null;
 
   if (!goal) {
     const verb = year < current ? 'You finished' : year > current ? 'Nothing finished in' : 'You’ve finished';

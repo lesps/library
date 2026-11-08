@@ -52,10 +52,11 @@ describe('covers', () => {
 
   it('brings subjects along in the same request, even when there’s no cover', () => {
     expect(new URL(coverLookupUrl({ isbn13: '', title: 'Dune', authors: [] })).searchParams.get('fields')).toContain('subject,place,time');
-    expect(parseBookLookup({ docs: [{ key: '/works/A', subject: ['Deserts', 'Fiction'], time: ['Far future'] }, { key: '/works/B', cover_i: 9, number_of_pages_median: 412 }] }))
-      .toEqual({ coverId: 9, olWork: '/works/B', pages: 412, subjects: [] });
+    expect(parseBookLookup({ docs: [{ key: '/works/A', subject: ['Deserts', 'Fiction'], time: ['Far future'] }, { key: '/works/B', cover_i: 9, number_of_pages_median: 412, first_publish_year: 1965 }] }))
+      .toEqual({ coverId: 9, olWork: '/works/B', pages: 412, year: 1965, subjects: [] });
     expect(parseBookLookup({ docs: [{ key: '/works/A', subject: ['Deserts', 'Fiction'], time: ['Far future'] }] }))
-      .toEqual({ coverId: null, olWork: '/works/A', pages: null, subjects: ['deserts', 'far future'] });
+      .toEqual({ coverId: null, olWork: '/works/A', pages: null, year: null, subjects: ['deserts', 'far future'] });
+    expect(new URL(coverLookupUrl({ isbn13: '', title: 'Dune', authors: [] })).searchParams.get('fields')).toContain('first_publish_year');
     expect(parseBookLookup({ docs: [] })).toBe(null);
   });
 
