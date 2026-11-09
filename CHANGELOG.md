@@ -2,6 +2,16 @@
 
 Each release's bullets are shown in the app's "What's new" note, so they're written for the person using Catalog. Notes for developers go under a "### Developer" heading, which the app skips.
 
+## 0.6.1 — 2026-11-08
+
+- Discover no longer deals several editions or translations of the same book. Titles are compared without subtitles, edition and imprint words or volume numbers, and authors are matched across spellings ("Dostoyevsky", "Dostoïevski") and name order ("Murakami Haruki"). Of several editions, it shows the one most readers have logged.
+- Books that only exist in other languages on Open Library aren't dealt any more.
+- Editions of books you already have, or have swiped on, stay out of the deck too.
+
+### Developer
+
+- `titleCore`, `authorsMatch` and a title + author book set in `src/lib/discover.js`; searches ask for `language`.
+
 ## 0.6.0 — 2026-11-08
 
 - Discover: swipe through book recommendations on the Add tab. Right adds a book to Want to read, left passes, and Already read marks it read. Tap or swipe up to turn a card over for its description and why it was picked. Arrow keys work too.

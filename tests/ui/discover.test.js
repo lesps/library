@@ -62,6 +62,18 @@ describe('Discover', () => {
     expect(t.app.state().discover.deck.length).toBeGreaterThan(0);
   });
 
+  it('deals one card per book, however many editions and translations Open Library returns', async () => {
+    const editions = { docs: [
+      doc('The Face of Another (Vintage International)', 'Kobo Abe', ['Japanese fiction', 'Japan'], { readinglog_count: 5 }),
+      doc('The Face of Another', 'Kōbō Abe', ['Japanese fiction', 'Japan'], { readinglog_count: 900 }),
+      doc('Tanin no kao', 'Abe Kōbō', ['Japanese fiction'], { language: ['jpn'] }),
+      doc('The Box Man: A Novel', 'Kōbō Abe', ['Japanese fiction', 'Japan']),
+    ] };
+    const t = await open({ fetch: routes([[(u) => /japan|abe/i.test(q(u)), editions]]) });
+    const deck = t.app.state().discover.deck.filter((c) => /Face|Tanin|Box Man/.test(c.title));
+    expect(deck.map((c) => c.title)).toEqual(['The Face of Another']);
+  });
+
   it('says why a card was dealt', async () => {
     const t = await open();
     while (topTitle(t) !== 'The Face of Another') t.$('.deck-actions .no').click();

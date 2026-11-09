@@ -4,6 +4,7 @@ import { findLanes } from '../../src/lib/taste.js';
 import { rng } from '../../src/lib/cats.js';
 import {
   laneQueries, searchUrl, parseDeal, parseWorkDescription, cleanDescription, workUrl, rankPool, deal, nextQuery, cardToBook, WILDCARD,
+  titleCore, authorsMatch, stillFresh,
 } from '../../src/lib/discover.js';
 
 const T = Date.UTC(2026, 10, 8);
@@ -156,5 +157,76 @@ describe('cards to books', () => {
   it('keeps what Open Library said, subjects included', () => {
     const c = { ...cand('The Face of Another', { authors: ['Kōbō Abe'], year: 1964, pages: 237, coverId: 77, subjects: ['japanese fiction'] }), lane: { key: 'x', label: 'X' }, why: [], features: [] };
     expect(cardToBook(c, T)).toEqual({ title: 'The Face of Another', authors: ['Kōbō Abe'], olWork: c.work, originalYear: 1964, pages: 237, coverId: 77, subjects: ['japanese fiction'], subjectsAt: T, source: 'openlibrary' });
+  });
+});
+
+describe('editions and translations are one book', () => {
+  it('reduces a title to its core: no subtitle, edition, imprint, volume or leading article', () => {
+    expect(['Crime and Punishment (Penguin Classics)', 'Crime and Punishment: A Novel in Six Parts with an Epilogue', 'Crime & Punishment', 'CRIME AND PUNISHMENT [Unabridged]', 'Crime and Punishment, Wordsworth Classics Edition']
+      .map(titleCore)).toEqual(['crime and punishment', 'crime and punishment', 'crime and punishment', 'crime and punishment', 'crime and punishment']);
+    expect(['1Q84 Book 1', '1Q84, Vol. 2', '1Q84: Books 1 and 2', 'The Brothers Karamazov - A Novel', 'Kafka on the Shore: A Novel', 'Der Prozess', 'Anna Karenina (Modern Library Classics)', 'The Odyssey (annotated edition)']
+      .map(titleCore)).toEqual(['1q84', '1q84', '1q84', 'brothers karamazov', 'kafka on shore', 'prozess', 'anna karenina', 'odyssey']);
+    expect(titleCore('Catch-22')).toBe('catch 22');
+    expect(titleCore('Notes from the Underground')).toBe(titleCore('Notes from Underground'));
+    expect(titleCore('The Lord of the Rings')).toBe('lord of rings');
+    expect(titleCore('The Complete Stories')).toBe('complete stories');
+  });
+
+  it('matches authors across spellings, name order and initials, but not namesakes', () => {
+    expect(authorsMatch(['Fyodor Dostoevsky'], ['Fyodor Dostoyevsky'])).toBe(true);
+    expect(authorsMatch(['Fyodor Dostoevsky'], ['Fiodor Dostoïevski'])).toBe(true);
+    expect(authorsMatch(['Haruki Murakami'], ['Murakami Haruki'])).toBe(true);
+    expect(authorsMatch(['F. M. Dostoevsky'], ['Fyodor Dostoevsky'])).toBe(true);
+    expect(authorsMatch(['Leo Tolstoy'], ['Lev Nikolayevich Tolstoy'])).toBe(true);
+    expect(authorsMatch(['Constance Garnett', 'Fyodor Dostoevsky'], ['Fyodor Dostoyevsky'])).toBe(true);
+    expect(authorsMatch(['Brian Herbert', 'Kevin J. Anderson'], ['Frank Herbert'])).toBe(false);
+    expect(authorsMatch(['Homer'], ['Homer'])).toBe(true);
+    expect(authorsMatch(['Homer'], ['Virgil'])).toBe(false);
+  });
+
+  it('keeps one card per book, the version most people have read', () => {
+    const pool = [
+      cand('Crime and Punishment (Penguin Classics)', { authors: ['Fyodor Dostoyevsky'], subjects: ['russian fiction'], readers: 40 }),
+      cand('Crime and Punishment', { authors: ['Fyodor Dostoevsky'], subjects: ['russian fiction'], readers: 9000 }),
+      cand('Crime & Punishment', { authors: ['Fiodor Dostoïevski'], subjects: ['russian fiction'], readers: 3 }),
+    ];
+    const ranked = rankPool(pool, ruLane.centroid, { taste, books: library, now: T });
+    expect(ranked.map((r) => [r.title, r.readers])).toEqual([['Crime and Punishment', 9000]]);
+  });
+
+  it('leaves out other editions of books in the library, the deck, or swiped on', () => {
+    const ctx = { taste, books: library, now: T };
+    expect(rankPool([cand('Anna Karenina (Modern Library Classics)', { authors: ['Lev Tolstoy'], subjects: ['russian fiction'] })], ruLane.centroid, ctx)).toEqual([]);
+    const swipes = [{ id: 's', work: '/works/OL5W', title: '1Q84', authors: ['Haruki Murakami'], verdict: 'no', features: [], at: T, updatedAt: T }];
+    expect(rankPool([cand('1Q84 Book 1', { authors: ['Murakami Haruki'], subjects: ['japanese fiction'] })], jpLane.centroid, { ...ctx, swipes })).toEqual([]);
+    const deck = [{ ...cand('Kafka on the Shore', { authors: ['Haruki Murakami'] }), lane: { key: 'x', label: 'X' } }];
+    expect(rankPool([cand('Kafka on the Shore: A Novel', { authors: ['Haruki Murakami'], subjects: ['japanese fiction'] })], jpLane.centroid, { ...ctx, deck })).toEqual([]);
+    expect(rankPool([cand('Dune: House Atreides', { authors: ['Brian Herbert'], subjects: ['japanese fiction'] })], jpLane.centroid, { ...ctx, books: [...library, book({ title: 'Dune', authors: ['Frank Herbert'] })] })).toHaveLength(1);
+  });
+
+  it('never deals two editions in one deal, even from different lanes', () => {
+    const pools = new Map([
+      [jpLane.key, [cand('The Sound of Waves (Vintage International)', { authors: ['Yukio Mishima'], subjects: ['japanese fiction'] })]],
+      [ruLane.key, [cand('The Sound of Waves', { authors: ['Mishima Yukio'], subjects: ['russian fiction', 'japanese fiction'] })]],
+    ]);
+    const lib = library.filter((b) => b.title !== 'The Sound of Waves');
+    expect(deal(pools, 5, { taste, books: lib, swipes: [], deck: [], now: T, rng: rng(2) })).toHaveLength(1);
+  });
+
+  it('drops works that exist only in other languages, or have no title in Latin script', () => {
+    const json = { docs: [
+      { key: '/works/OL1W', title: 'Kafka en la orilla', author_name: ['Haruki Murakami'], language: ['spa'] },
+      { key: '/works/OL2W', title: 'Kafka on the Shore', author_name: ['Haruki Murakami'], language: ['eng', 'spa', 'jpn'] },
+      { key: '/works/OL3W', title: '海辺のカフカ', author_name: ['村上春樹'] },
+      { key: '/works/OL4W', title: 'Old Undated Record', author_name: ['Someone'] },
+    ] };
+    expect(parseDeal(json).map((c) => c.title)).toEqual(['Kafka on the Shore', 'Old Undated Record']);
+    expect(new URL(searchUrl({ q: 'x', sort: 'rating' })).searchParams.get('fields')).toContain('language');
+  });
+
+  it('drops duplicates already sitting in a saved deck', () => {
+    const a = { ...cand('Kitchen', { authors: ['Banana Yoshimoto'] }), lane: { key: 'x', label: 'X' } };
+    const b = { ...cand('Kitchen (Faber)', { authors: ['Yoshimoto Banana'] }), lane: { key: 'x', label: 'X' } };
+    expect(stillFresh([a, b], { books: [], swipes: [], now: T })).toEqual([a]);
   });
 });
